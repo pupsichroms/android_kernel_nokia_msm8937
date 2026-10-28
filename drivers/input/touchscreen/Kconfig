@@ -403,12 +403,13 @@ config TOUCHSCREEN_HIDEEP
 	  module will be called hideep_ts.
 
 config TOUCHSCREEN_ILI210X
-	tristate "Ilitek ILI210X based touchscreen"
+	tristate "Ilitek ILI210X/ILI2121X based touchscreen"
 	depends on I2C
 	help
 	  Say Y here if you have a ILI210X based touchscreen
 	  controller. This driver supports models ILI2102,
-	  ILI2102s, ILI2103, ILI2103s and ILI2105.
+	  ILI2102s, ILI2103, ILI2103s, ILI2105 and the protocol-3.x
+	  ILI2121X used by the Nokia D1C platform.
 	  Such kind of chipsets can be found in Amazon Kindle Fire
 	  touchscreens.
 

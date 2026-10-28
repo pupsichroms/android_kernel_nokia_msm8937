@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Boot-critical subset of HMD's generated ILI7807E panel description.
+ * Source: d548dae4af7fa5a75be88ce2e93f95ad4c867777
+ * arch/arm/boot/dts/qcom/components/display/
+ * dsi-panel-fih-ili7807e-1080p-video.dtsi
+ *
+ * Optional FIH CE/colour-temperature/CABC commands are Android display
+ * enhancements, not panel power-on requirements for Lineage Recovery.
+ * Geometry, link timing, init/off commands, backlight and reset sequencing
+ * remain byte-for-byte stock values.
+ */
+
+&mdss_mdp {
+	fih_dsi_ili7807e_1080p_video: fih,mdss_dsi_ili7807e_1080p_video {
+		fih,panel-id = <1>;
+		qcom,mdss-dsi-panel-name = "ili7807e 1080p video mode dsi panel";
+		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
+		qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+		qcom,mdss-dsi-panel-type = "dsi_video_mode";
+		qcom,mdss-dsi-panel-destination = "display_1";
+		qcom,mdss-dsi-panel-framerate = <60>;
+		qcom,mdss-dsi-virtual-channel-id = <0>;
+		qcom,mdss-dsi-stream = <0>;
+		qcom,mdss-dsi-panel-width = <1080>;
+		qcom,mdss-dsi-panel-height = <1920>;
+		qcom,mdss-dsi-h-front-porch = <26>;
+		qcom,mdss-dsi-h-back-porch = <30>;
+		qcom,mdss-dsi-h-pulse-width = <6>;
+		qcom,mdss-dsi-h-sync-skew = <0>;
+		qcom,mdss-dsi-v-front-porch = <16>;
+		qcom,mdss-dsi-v-back-porch = <8>;
+		qcom,mdss-dsi-v-pulse-width = <8>;
+		qcom,mdss-dsi-h-left-border = <0>;
+		qcom,mdss-dsi-h-right-border = <0>;
+		qcom,mdss-dsi-v-top-border = <0>;
+		qcom,mdss-dsi-v-bottom-border = <0>;
+		qcom,mdss-dsi-bpp = <24>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
+		qcom,mdss-dsi-underflow-color = <0xff>;
+		qcom,mdss-dsi-border-color = <0>;
+		qcom,mdss-dsi-on-command = [
+			05 01 00 00 64 00 02 11 00
+			05 01 00 00 0a 00 02 29 00
+			39 01 00 00 00 00 04 ff 78 07 01
+			15 01 00 00 00 00 02 39 23
+			15 01 00 00 00 00 02 4c 23
+			15 01 00 00 00 00 02 69 23
+			15 01 00 00 00 00 02 7c 23
+			39 01 00 00 00 00 04 ff 78 07 00
+			39 01 00 00 00 00 03 51 0f ff
+			15 01 00 00 00 00 02 53 2c
+			39 01 00 00 00 00 04 ff 78 07 05
+			15 01 00 00 00 00 02 2d 33
+			15 01 00 00 00 00 02 3c 27
+			39 01 00 00 00 00 04 ff 78 07 0e
+			15 01 00 00 00 00 02 53 01
+			39 01 00 00 00 00 04 ff 78 07 06
+			15 01 00 00 00 00 02 57 2c
+		];
+		qcom,mdss-dsi-off-command = [
+			05 01 00 00 0a 00 02 28 00
+			05 01 00 00 96 00 02 10 00
+		];
+		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
+		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-h-sync-pulse = <1>;
+		qcom,mdss-dsi-traffic-mode = "burst_mode";
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
+		qcom,mdss-dsi-bllp-eof-power-mode;
+		qcom,mdss-dsi-bllp-power-mode;
+		qcom,mdss-dsi-lp11-init;
+		qcom,mdss-dsi-init-delay-us = <5>;
+		qcom,mdss-dsi-lane-0-state;
+		qcom,mdss-dsi-lane-1-state;
+		qcom,mdss-dsi-lane-2-state;
+		qcom,mdss-dsi-lane-3-state;
+		qcom,mdss-dsi-panel-timings = [d5 32 22 00 60 56 37 36 29 03 04 00];
+		qcom,mdss-dsi-panel-timings-8996 = [
+			24 1f 08 09 05 03 04 a0
+			24 1f 08 09 05 03 04 a0
+			24 1f 08 09 05 03 04 a0
+			24 1f 08 09 05 03 04 a0
+			24 1d 08 09 05 03 04 a0
+		];
+		qcom,mdss-dsi-t-clk-post = <0x03>;
+		qcom,mdss-dsi-t-clk-pre = <0x28>;
+		qcom,mdss-dsi-bl-min-level = <1>;
+		qcom,mdss-dsi-bl-max-level = <4095>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
+		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+		qcom,mdss-dsi-reset-sequence = <0 0>, <0 0>, <1 20>;
+		qcom,mdss-pan-physical-width-dimension = <68>;
+		qcom,mdss-pan-physical-height-dimension = <120>;
+		qcom,mdss-pan-physical-width-dimension-full = <6804>;
+		qcom,mdss-pan-physical-height-dimension-full = <12096>;
+	};
+};

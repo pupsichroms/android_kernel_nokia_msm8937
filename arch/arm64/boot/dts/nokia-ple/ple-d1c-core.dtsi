@@ -13,12 +13,14 @@
  * The Linux 4.19 Qualcomm substrate supplies CPUs, interrupt controllers,
  * timers, clocks, the PM8937 regulator graph, and the SDHCI controllers.  This
  * file translates only the exact D1C board-level overrides needed for early
- * console, persistent logs, eMMC, SD-card access, and the K03 USB recovery
- * path.  Display, full charging policy, audio, camera, radio, sensors,
- * fingerprint, NFC, and LEDs remain deferred.
+ * console, persistent logs, eMMC, SD-card access, K03 USB recovery, and the
+ * K04 recovery display/input path. Full charging policy, audio, camera, radio,
+ * sensors, fingerprint, NFC, and non-backlight LEDs remain deferred.
  */
 
 #include "../vendor-legacy/qcom/pmi8950.dtsi"
+#include "ple-panel-fih-ili7807e-1080p-video.dtsi"
+#include "ple-d1c-display-input.dtsi"
 
 /*
  * The 4.19 generic PMI8950 description assumes a QUSB PHY. D1C retains the
@@ -34,10 +36,6 @@
 };
 
 &qpnp_fg {
-	status = "disabled";
-};
-
-&wled {
 	status = "disabled";
 };
 

@@ -5,10 +5,15 @@
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/delay.h>
+#include <linux/of.h>
 #include <linux/workqueue.h>
 #include <linux/input/ili210x.h>
 
 #define MAX_TOUCHES		2
+#define ILI2121X_MAX_TOUCHES	10
+#define ILI2121X_DATA_SIZE	53
+#define ILI2121X_X_MAX		(1080 + 2)
+#define ILI2121X_Y_MAX		(1920 + 2)
 #define DEFAULT_POLL_PERIOD	20
 
 /* Touchscreen commands */
@@ -45,6 +50,7 @@ struct ili210x {
 	struct i2c_client *client;
 	struct input_dev *input;
 	bool (*get_pendown_state)(void);
+	bool is_ili2121x;
 	unsigned int poll_period;
 	struct delayed_work dwork;
 };
@@ -103,6 +109,43 @@ static void ili210x_report_events(struct input_dev *input,
 	input_sync(input);
 }
 
+static void ili2121x_report_events(struct input_dev *input, const u8 *data)
+{
+	int i;
+	bool release_all = data[0] == 0;
+
+	/* HMD reserves this packet marker for gesture/diagnostic reports. */
+	if (data[1] == 0x5f)
+		return;
+
+	/*
+	 * D1C uses Ilitek protocol 3.x: byte 0 is the active-contact count and
+	 * ten fixed five-byte records begin at byte 3. This is the exact input
+	 * subset used by HMD Android 9; updater, gestures and diagnostics are
+	 * deliberately outside the recovery-critical port.
+	 */
+	for (i = 0; i < ILI2121X_MAX_TOUCHES; i++) {
+		unsigned int offset = i * 5 + 3;
+		bool active = !release_all && (data[offset] & BIT(7));
+
+		input_mt_slot(input, i);
+		input_mt_report_slot_state(input, MT_TOOL_FINGER, active);
+		if (active) {
+			unsigned int x = ((data[offset] & 0x3f) << 8) |
+					 data[offset + 1];
+			unsigned int y = (data[offset + 2] << 8) |
+					 data[offset + 3];
+
+			input_report_abs(input, ABS_MT_POSITION_X, x);
+			input_report_abs(input, ABS_MT_POSITION_Y, y);
+			input_report_abs(input, ABS_MT_TOUCH_MAJOR, 1);
+		}
+	}
+
+	input_mt_report_pointer_emulation(input, true);
+	input_sync(input);
+}
+
 static bool get_pendown_state(const struct ili210x *priv)
 {
 	bool state = false;
@@ -118,20 +161,38 @@ static void ili210x_work(struct work_struct *work)
 	struct ili210x *priv = container_of(work, struct ili210x,
 					    dwork.work);
 	struct i2c_client *client = priv->client;
-	struct touchdata touchdata;
+	union {
+		struct touchdata legacy;
+		u8 ili2121x[ILI2121X_DATA_SIZE];
+	} touchdata;
 	int error;
 
+	if (priv->is_ili2121x) {
+		error = ili210x_read_reg(client, REG_TOUCHDATA,
+					 touchdata.ili2121x,
+					 sizeof(touchdata.ili2121x));
+		if (error) {
+			dev_err(&client->dev,
+				"Unable to get ILI2121X touchdata, err = %d\n",
+				error);
+			return;
+		}
+
+		ili2121x_report_events(priv->input, touchdata.ili2121x);
+		return;
+	}
+
 	error = ili210x_read_reg(client, REG_TOUCHDATA,
-				 &touchdata, sizeof(touchdata));
+				 &touchdata.legacy, sizeof(touchdata.legacy));
 	if (error) {
 		dev_err(&client->dev,
 			"Unable to get touchdata, err = %d\n", error);
 		return;
 	}
 
-	ili210x_report_events(priv->input, &touchdata);
+	ili210x_report_events(priv->input, &touchdata.legacy);
 
-	if ((touchdata.status & 0xf3) || get_pendown_state(priv))
+	if ((touchdata.legacy.status & 0xf3) || get_pendown_state(priv))
 		schedule_delayed_work(&priv->dwork,
 				      msecs_to_jiffies(priv->poll_period));
 }
@@ -189,12 +250,17 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 	struct input_dev *input;
 	struct panel_info panel;
 	struct firmware_version firmware;
+	bool is_ili2121x;
 	int xmax, ymax;
 	int error;
 
 	dev_dbg(dev, "Probing for ILI210X I2C Touschreen driver");
 
-	if (!pdata) {
+	is_ili2121x = client->dev.of_node &&
+		of_device_is_compatible(client->dev.of_node,
+					"ilitech,ili2121x");
+
+	if (!pdata && !is_ili2121x) {
 		dev_err(dev, "No platform data!\n");
 		return -EINVAL;
 	}
@@ -204,25 +270,35 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	/* Get firmware version */
-	error = ili210x_read_reg(client, REG_FIRMWARE_VERSION,
-				 &firmware, sizeof(firmware));
-	if (error) {
-		dev_err(dev, "Failed to get firmware version, err: %d\n",
-			error);
-		return error;
-	}
+	if (is_ili2121x) {
+		xmax = ILI2121X_X_MAX;
+		ymax = ILI2121X_Y_MAX;
+	} else {
+		/* Get firmware version. */
+		error = ili210x_read_reg(client, REG_FIRMWARE_VERSION,
+					 &firmware, sizeof(firmware));
+		if (error) {
+			dev_err(dev,
+				"Failed to get firmware version, err: %d\n",
+				error);
+			return error;
+		}
 
-	/* get panel info */
-	error = ili210x_read_reg(client, REG_PANEL_INFO, &panel, sizeof(panel));
-	if (error) {
-		dev_err(dev, "Failed to get panel information, err: %d\n",
-			error);
-		return error;
-	}
+		/* Get legacy panel geometry. */
+		error = ili210x_read_reg(client, REG_PANEL_INFO, &panel,
+					 sizeof(panel));
+		if (error) {
+			dev_err(dev,
+				"Failed to get panel information, err: %d\n",
+				error);
+			return error;
+		}
 
-	xmax = panel.finger_max.x_low | (panel.finger_max.x_high << 8);
-	ymax = panel.finger_max.y_low | (panel.finger_max.y_high << 8);
+		xmax = panel.finger_max.x_low |
+			(panel.finger_max.x_high << 8);
+		ymax = panel.finger_max.y_low |
+			(panel.finger_max.y_high << 8);
+	}
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	input = input_allocate_device();
@@ -233,12 +309,15 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 
 	priv->client = client;
 	priv->input = input;
-	priv->get_pendown_state = pdata->get_pendown_state;
-	priv->poll_period = pdata->poll_period ? : DEFAULT_POLL_PERIOD;
+	priv->get_pendown_state = pdata ? pdata->get_pendown_state : NULL;
+	priv->is_ili2121x = is_ili2121x;
+	priv->poll_period = pdata && pdata->poll_period ?
+		pdata->poll_period : DEFAULT_POLL_PERIOD;
 	INIT_DELAYED_WORK(&priv->dwork, ili210x_work);
 
 	/* Setup input device */
-	input->name = "ILI210x Touchscreen";
+	input->name = is_ili2121x ?
+		"ILI2121X Touchscreen" : "ILI210x Touchscreen";
 	input->id.bustype = BUS_I2C;
 	input->dev.parent = dev;
 
@@ -252,13 +331,18 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 	input_set_abs_params(input, ABS_Y, 0, ymax, 0, 0);
 
 	/* Multi touch */
-	input_mt_init_slots(input, MAX_TOUCHES, 0);
+	input_mt_init_slots(input,
+			    is_ili2121x ? ILI2121X_MAX_TOUCHES : MAX_TOUCHES,
+			    is_ili2121x ? INPUT_MT_DIRECT : 0);
 	input_set_abs_params(input, ABS_MT_POSITION_X, 0, xmax, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, ymax, 0, 0);
+	if (is_ili2121x)
+		input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 
 	i2c_set_clientdata(client, priv);
 
-	error = request_irq(client->irq, ili210x_irq, pdata->irq_flags,
+	error = request_irq(client->irq, ili210x_irq,
+			    is_ili2121x ? IRQF_TRIGGER_FALLING : pdata->irq_flags,
 			    client->name, priv);
 	if (error) {
 		dev_err(dev, "Unable to request touchscreen IRQ, err: %d\n",
@@ -281,9 +365,13 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 
 	device_init_wakeup(dev, 1);
 
-	dev_dbg(dev,
-		"ILI210x initialized (IRQ: %d), firmware version %d.%d.%d",
-		client->irq, firmware.id, firmware.major, firmware.minor);
+	if (is_ili2121x)
+		dev_info(dev, "ILI2121X initialized (IRQ: %d)\n", client->irq);
+	else
+		dev_dbg(dev,
+			"ILI210x initialized (IRQ: %d), firmware version %d.%d.%d",
+			client->irq, firmware.id, firmware.major,
+			firmware.minor);
 
 	return 0;
 
@@ -335,14 +423,22 @@ static SIMPLE_DEV_PM_OPS(ili210x_i2c_pm,
 
 static const struct i2c_device_id ili210x_i2c_id[] = {
 	{ "ili210x", 0 },
+	{ "ili2121x", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ili210x_i2c_id);
+
+static const struct of_device_id ili210x_of_match[] = {
+	{ .compatible = "ilitek,ili2121x" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, ili210x_of_match);
 
 static struct i2c_driver ili210x_ts_driver = {
 	.driver = {
 		.name = "ili210x_i2c",
 		.pm = &ili210x_i2c_pm,
+		.of_match_table = of_match_ptr(ili210x_of_match),
 	},
 	.id_table = ili210x_i2c_id,
 	.probe = ili210x_i2c_probe,
