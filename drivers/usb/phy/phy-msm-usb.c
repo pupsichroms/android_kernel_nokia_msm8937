@@ -4187,6 +4187,10 @@ static int msm_otg_probe(struct platform_device *pdev)
 	}
 #endif
 
+	if (of_property_read_bool(pdev->dev.of_node,
+				  "qcom,floated-charger-enable"))
+		floated_charger_enable = true;
+
 	motg = kzalloc(sizeof(struct msm_otg), GFP_KERNEL);
 	if (!motg)
 		return -ENOMEM;

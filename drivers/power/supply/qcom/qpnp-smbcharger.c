@@ -152,7 +152,14 @@ struct smbchg_chip {
 	bool				restricted_charging;
 	bool				skip_usb_suspend_for_fake_battery;
 	bool				hvdcp_not_supported;
+	bool				cfg_override_usb_current;
+	bool				hmd_jeita_comp_enabled;
 	bool				otg_pinctrl;
+	int				hmd_jeita_comp_band;
+	int				hmd_vfloat_comp_high;
+	int				hmd_vfloat_comp_low;
+	int				hmd_fastchg_comp_high;
+	int				hmd_fastchg_comp_low;
 	u8				original_usbin_allowance;
 	struct parallel_usb_cfg		parallel;
 	struct delayed_work		parallel_en_work;
@@ -1681,6 +1688,31 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 		if ((current_ma < CURRENT_150_MA) &&
 				(chip->wa_flags & SMBCHG_USB100_WA))
 			current_ma = CURRENT_150_MA;
+
+		/* Preserve the exact HMD D1C SDP-current override policy. */
+		if (current_ma > CURRENT_900_MA) {
+			if (chip->cfg_override_usb_current) {
+				rc = smbchg_set_high_usb_chg_current(chip,
+								     current_ma);
+				if (rc < 0) {
+					pr_err("Couldn't set %dmA rc = %d\n",
+					       current_ma, rc);
+					goto out;
+				}
+				rc = smbchg_masked_write(chip,
+							 chip->usb_chgpth_base + CMD_IL,
+							 ICL_OVERRIDE_BIT,
+							 ICL_OVERRIDE_BIT);
+				if (rc < 0)
+					pr_err("Couldn't set ICL override rc = %d\n",
+					       rc);
+			} else {
+				current_ma = CURRENT_500_MA;
+			}
+			pr_smb(PR_STATUS,
+			       "override_usb_current=%d current_ma set to %d\n",
+			       chip->cfg_override_usb_current, current_ma);
+		}
 
 		if (current_ma < CURRENT_150_MA) {
 			/* force 100mA */
@@ -3347,6 +3379,51 @@ static int smbchg_icl_loop_disable_check(struct smbchg_chip *chip)
 
 #define UNKNOWN_BATT_TYPE	"Unknown Battery"
 #define LOADING_BATT_TYPE	"Loading Battery Data"
+#define HMD_JEITA_COMP_TEMP_THRESHOLD_DECIDEGC	300
+static int smbchg_apply_hmd_jeita_comp(struct smbchg_chip *chip)
+{
+	int band, batt_temp, fastchg_comp, rc, vfloat_comp;
+
+	if (!chip->hmd_jeita_comp_enabled)
+		return 0;
+
+	batt_temp = get_prop_batt_temp(chip);
+	band = batt_temp >= HMD_JEITA_COMP_TEMP_THRESHOLD_DECIDEGC;
+	if (band == chip->hmd_jeita_comp_band)
+		return 0;
+
+	if (band) {
+		fastchg_comp = chip->hmd_fastchg_comp_high;
+		vfloat_comp = chip->hmd_vfloat_comp_high;
+	} else {
+		fastchg_comp = chip->hmd_fastchg_comp_low;
+		vfloat_comp = chip->hmd_vfloat_comp_low;
+	}
+
+	rc = smbchg_fastchg_current_comp_set(chip, fastchg_comp);
+	if (rc < 0) {
+		dev_err(chip->dev,
+			"Couldn't set HMD fast-charge compensation rc=%d\n", rc);
+		return rc;
+	}
+
+	rc = smbchg_float_voltage_comp_set(chip, vfloat_comp);
+	if (rc < 0) {
+		dev_err(chip->dev,
+			"Couldn't set HMD float-voltage compensation rc=%d\n", rc);
+		return rc;
+	}
+
+	chip->fastchg_current_comp = fastchg_comp;
+	chip->float_voltage_comp = vfloat_comp;
+	chip->hmd_jeita_comp_band = band;
+	pr_smb(PR_STATUS,
+	       "HMD compensation band=%s temp=%d fastchg=%d vfloat=%d\n",
+	       band ? "high" : "low", batt_temp, fastchg_comp, vfloat_comp);
+
+	return 0;
+}
+
 static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 {
 	int rc = 0, max_voltage_uv = 0, fastchg_ma = 0, ret = 0, iterm_ua = 0;
@@ -3460,6 +3537,36 @@ static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 		}
 	}
 
+	if (chip->hmd_jeita_comp_enabled) {
+		rc = of_property_read_u32(profile_node,
+					  "qcom,high-float-voltage-comp",
+				&chip->hmd_vfloat_comp_high);
+		if (!rc)
+			rc = of_property_read_u32(profile_node,
+						  "qcom,low-float-voltage-comp",
+					&chip->hmd_vfloat_comp_low);
+		if (!rc)
+			rc = of_property_read_u32(profile_node,
+						  "qcom,high-fastchg-current-comp",
+					&chip->hmd_fastchg_comp_high);
+		if (!rc)
+			rc = of_property_read_u32(profile_node,
+						  "qcom,low-fastchg-current-comp",
+					&chip->hmd_fastchg_comp_low);
+		if (rc) {
+			dev_err(chip->dev,
+				"Incomplete HMD high/low compensation profile rc=%d\n",
+				rc);
+			chip->hmd_jeita_comp_enabled = false;
+			return rc;
+		}
+
+		chip->hmd_jeita_comp_band = -1;
+		rc = smbchg_apply_hmd_jeita_comp(chip);
+		if (rc)
+			return rc;
+	}
+
 	return ret;
 }
 
@@ -3510,10 +3617,17 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 		}
 
 		rc = smbchg_config_chg_battery_type(chip);
-		if (rc)
+		if (rc) {
 			pr_smb(PR_MISC,
-				"Couldn't update charger configuration rc=%d\n",
-									rc);
+			       "Couldn't update charger configuration rc=%d\n",
+			       rc);
+		} else {
+			rc = smbchg_apply_hmd_jeita_comp(chip);
+			if (rc)
+				pr_smb(PR_MISC,
+				       "Couldn't update HMD compensation rc=%d\n",
+				       rc);
+		}
 	}
 
 	/* adjust vfloat */
@@ -7153,6 +7267,7 @@ do {									\
 static int smb_parse_dt(struct smbchg_chip *chip)
 {
 	int rc = 0, ocp_thresh = -EINVAL;
+	u32 hmd_jeita_comp = 0;
 	struct device_node *node = chip->dev->of_node;
 	const char *dc_psy_type, *bpd;
 
@@ -7251,6 +7366,14 @@ static int smb_parse_dt(struct smbchg_chip *chip)
 					"qcom,force-aicl-rerun");
 	chip->skip_usb_suspend_for_fake_battery = of_property_read_bool(node,
 				"qcom,skip-usb-suspend-for-fake-battery");
+	chip->cfg_override_usb_current = of_property_read_bool(node,
+							       "qcom,override-usb-current");
+	chip->hvdcp_not_supported |= of_property_read_bool(node,
+				"fih,disable_hvdcp_charge");
+	chip->hmd_jeita_comp_enabled =
+		!of_property_read_u32(node, "fih,high-low-comp-set",
+				&hmd_jeita_comp) && hmd_jeita_comp == 1;
+	chip->hmd_jeita_comp_band = -1;
 
 	/* parse the battery missing detection pin source */
 	rc = of_property_read_string(chip->pdev->dev.of_node,

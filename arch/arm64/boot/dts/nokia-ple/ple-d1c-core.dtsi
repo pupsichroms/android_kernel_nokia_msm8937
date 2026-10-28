@@ -14,29 +14,52 @@
  * timers, clocks, the PM8937 regulator graph, and the SDHCI controllers.  This
  * file translates only the exact D1C board-level overrides needed for early
  * console, persistent logs, eMMC, SD-card access, K03 USB recovery, and the
- * K04 recovery display/input path. Full charging policy, audio, camera, radio,
- * sensors, fingerprint, NFC, and non-backlight LEDs remain deferred.
+ * K04 recovery display/input path, and the K05 battery/power policy. Audio,
+ * camera, radio, sensors, fingerprint, NFC, and non-backlight LEDs remain
+ * deferred.
  */
 
 #include "../vendor-legacy/qcom/pmi8950.dtsi"
+#include "ple-d1c-batterydata.dtsi"
 #include "ple-panel-fih-ili7807e-1080p-video.dtsi"
 #include "ple-d1c-display-input.dtsi"
 
 /*
  * The 4.19 generic PMI8950 description assumes a QUSB PHY. D1C retains the
  * legacy HSUSB OTG block, which is also the exact MSM8937/PMI8950 DP/DM
- * provider used by the registered 4.19 reference. K03 enables only charger
- * detection and explicitly disables battery charging until the exact D1C
- * battery/thermal policy is translated in K05.
+ * provider used by the registered 4.19 reference. K05 restores the exact HMD
+ * D1C battery profiles, charger limits, HVDCP prohibition, and the high/low
+ * compensation policy before enabling charging.
  */
 &qpnp_smbcharger {
 	dpdm-supply = <&usb_otg>;
-	qcom,charging-disabled;
+	qcom,battery-data = <&d1c_batterydata>;
+	qcom,float-voltage-mv = <4400>;
+	qcom,fastchg-current-comp = <1200>;
+	qcom,float-voltage-comp = <16>;
+	qcom,thermal-mitigation = <3000 1200 600 0>;
+	qcom,iterm-ma = <100>;
+	qcom,charging-timeout-mins = <1536>;
+	qcom,precharging-timeout-mins = <192>;
+	qcom,override-usb-current;
+	qcom,bmd-pin-src = "bpd_thm";
+	fih,disable_hvdcp_charge;
+	fih,high-low-comp-set = <1>;
 	status = "okay";
 };
 
 &qpnp_fg {
-	status = "disabled";
+	qcom,battery-data = <&d1c_batterydata>;
+	qcom,bad-battery-detection-enable;
+	qcom,fg-cutoff-voltage-mv = <3300>;
+	qcom,resume-soc = <95>;
+	qcom,fg-iterm-ma = <150>;
+	qcom,fg-chg-iterm-ma = <100>;
+	qcom,hold-soc-while-full;
+	qcom,cold-hot-jeita-hysteresis = <6 6>;
+	qcom,ext-sense-type;
+	qcom,vbat-estimate-diff-mv = <100>;
+	status = "okay";
 };
 
 &flash_led {
@@ -105,6 +128,7 @@
 };
 
 &usb_otg {
+	qcom,floated-charger-enable;
 	status = "okay";
 };
 
