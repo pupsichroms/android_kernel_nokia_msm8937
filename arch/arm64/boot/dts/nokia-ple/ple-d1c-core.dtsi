@@ -208,6 +208,31 @@
 	status = "disabled";
 };
 
+/* K07: Wi-Fi/Bluetooth firmware and board calibration are Phase 9 work. */
+&{/soc/qcom,pronto@a21b000} {
+	status = "disabled";
+};
+
+&{/soc/qcom,wcnss-wlan@0a000000} {
+	status = "disabled";
+};
+
+&{/soc/smd/wcnss} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smsm/wcnss@3} {
+	status = "disabled";
+};
+
+&{/soc/smp2p-wcnss} {
+	status = "disabled";
+};
+
+&{/soc/wcn_etm0} {
+	status = "disabled";
+};
+
 /*
  * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
  * the exact D1C EVT overlay shared by all four approved variants explicitly
