@@ -308,6 +308,27 @@
 	status = "disabled";
 };
 
+/* K10: quiesce every inherited camera controller until Phase 9. */
+&{/soc/qcom,msm-cam@1b00000} { status = "disabled"; };
+&{/soc/qcom,csiphy@1b34000} { status = "disabled"; };
+&{/soc/qcom,csiphy@1b35000} { status = "disabled"; };
+&{/soc/qcom,csid@1b30000} { status = "disabled"; };
+&{/soc/qcom,csid@1b30400} { status = "disabled"; };
+&{/soc/qcom,csid@1b30800} { status = "disabled"; };
+&{/soc/qcom,ispif@1b31000} { status = "disabled"; };
+&vfe0 { status = "disabled"; };
+&vfe1 { status = "disabled"; };
+&{/soc/qcom,cam_smmu} { status = "disabled"; };
+&{/soc/qcom,jpeg@1b1c000} { status = "disabled"; };
+&{/soc/qcom,cpp@1b04000} { status = "disabled"; };
+&cci { status = "disabled"; };
+&{/soc/qcom,vfe} { status = "disabled"; };
+&{/soc/qcom,camera-flash} { status = "disabled"; };
+&gdsc_jpeg { status = "disabled"; };
+&gdsc_vfe { status = "disabled"; };
+&gdsc_vfe1 { status = "disabled"; };
+&gdsc_cpp { status = "disabled"; };
+
 /*
  * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
  * the exact D1C EVT overlay shared by all four approved variants explicitly
