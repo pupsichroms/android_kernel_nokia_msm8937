@@ -67,7 +67,9 @@
 };
 
 &pmi_haptic {
-	status = "disabled";
+	qcom,actuator-type = <0>;
+	qcom,vmax-mv = <3000>;
+	status = "okay";
 };
 
 &reserved_memory {
