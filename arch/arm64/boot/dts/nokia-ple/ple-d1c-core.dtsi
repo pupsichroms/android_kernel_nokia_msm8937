@@ -135,6 +135,80 @@
 };
 
 /*
+ * K06 Recovery boundary: SMEM and the RPM transport stay available because
+ * the regulator graph depends on them.  Modem and ADSP firmware boot are not
+ * needed by Recovery and remain quiesced until their exact Android 9 firmware
+ * and userspace contracts are validated together in Phase 9.
+ */
+&pil_mss {
+	status = "disabled";
+};
+
+&{/soc/qcom,lpass@c200000} {
+	status = "disabled";
+};
+
+&bam_dmux {
+	status = "disabled";
+};
+
+&{/soc/qcom,smdpkt} {
+	status = "disabled";
+};
+
+&{/soc/smd/modem} {
+	status = "disabled";
+};
+
+&{/soc/smd/adsp} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smsm/modem@1} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smsm/adsp@2} {
+	status = "disabled";
+};
+
+&{/soc/smp2p-modem} {
+	status = "disabled";
+};
+
+&{/soc/smp2p-adsp} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smp2p_sleepstate} {
+	status = "disabled";
+};
+
+&adsp_loader {
+	status = "disabled";
+};
+
+&{/soc/qcom,msm_fastrpc} {
+	status = "disabled";
+};
+
+&{/soc/qcom,adsprpc-mem} {
+	status = "disabled";
+};
+
+&{/soc/qcom,rmtfs_sharedmem@00000000} {
+	status = "disabled";
+};
+
+&{/soc/modem_etm0} {
+	status = "disabled";
+};
+
+&{/soc/audio_etm0} {
+	status = "disabled";
+};
+
+/*
  * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
  * the exact D1C EVT overlay shared by all four approved variants explicitly
  * disabled it. The 4.19 substrate has no Pericom child, so use the stock
