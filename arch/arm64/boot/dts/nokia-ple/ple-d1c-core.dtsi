@@ -303,6 +303,11 @@
 &{/soc/audio_ext_clk} { status = "disabled"; };
 &{/soc/msm_cdc_pinctrl} { status = "disabled"; };
 
+/* K09: sensor hub, fingerprint and NFC are not minimal-Recovery inputs. */
+&ssc_sensors {
+	status = "disabled";
+};
+
 /*
  * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
  * the exact D1C EVT overlay shared by all four approved variants explicitly
