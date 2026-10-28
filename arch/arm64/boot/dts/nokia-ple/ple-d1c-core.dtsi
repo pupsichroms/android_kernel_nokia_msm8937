@@ -233,6 +233,76 @@
 	status = "disabled";
 };
 
+/* K08: the complete inherited audio graph is outside minimal Recovery. */
+&audio_apr { status = "disabled"; };
+&int_codec { status = "disabled"; };
+&ext_codec { status = "disabled"; };
+&i2c_2 { status = "disabled"; };
+&pmic_analog_codec { status = "disabled"; };
+
+&{/soc/slim@c140000/tasha_codec} { status = "disabled"; };
+&{/soc/slim@c140000/msm_dai_slim} { status = "disabled"; };
+&{/soc/qcom,msm-pcm} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-routing} { status = "disabled"; };
+&{/soc/qcom,msm-compr-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-ultra-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-dsp-noirq} { status = "disabled"; };
+&{/soc/qcom,msm-transcode-loopback} { status = "disabled"; };
+&{/soc/qcom,msm-compress-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-voip-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-voice} { status = "disabled"; };
+&{/soc/qcom,msm-stub-codec} { status = "disabled"; };
+&{/soc/qcom,msm-dai-fe} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-afe} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-hdmi} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-dp} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-dp1} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-loopback} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-loopback-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-dtmf} { status = "disabled"; };
+&{/soc/qcom,msm-dai-mi2s} { status = "disabled"; };
+&{/soc/qcom,msm-dai-cdc-dma} { status = "disabled"; };
+&{/soc/qcom,msm-lsm-client} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-hostless} { status = "disabled"; };
+&{/soc/qcom,msm-pri-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-sec-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-tert-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-quat-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-quin-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-sen-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-hdmi-dba-codec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-pri-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-pri-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sec-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-tert-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-tert-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quat-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quat-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quin-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quin-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sen-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sen-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-pri-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-pri-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-sec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-sec-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-afe-loopback-tx} { status = "disabled"; };
+&{/soc/qcom,avtimer@c0a300c} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_us_euro_sw} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_pri} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_quin} { status = "disabled"; };
+&{/soc/wsa881x_analog_vi_pctrl} { status = "disabled"; };
+&{/soc/wsa881x_analog_clk_pctrl} { status = "disabled"; };
+&{/soc/wsa881x_analog_reset_pctrl} { status = "disabled"; };
+&{/soc/wsa_ana_clk} { status = "disabled"; };
+&{/soc/qcom,msm-cpe-lsm} { status = "disabled"; };
+&{/soc/wcd9xxx-irq} { status = "disabled"; };
+&{/soc/audio_ext_clk} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl} { status = "disabled"; };
+
 /*
  * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
  * the exact D1C EVT overlay shared by all four approved variants explicitly
