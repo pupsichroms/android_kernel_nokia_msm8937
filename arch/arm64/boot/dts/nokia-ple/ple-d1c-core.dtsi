@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Nokia 6 (D1C/PLE) boot-critical platform data.
+ *
+ * Nokia hardware authority:
+ *   HMD commit d548dae4af7fa5a75be88ce2e93f95ad4c867777
+ *   arch/arm/boot/dts/qcom/msm8937-fih-D1C-v0.dtsi
+ *   arch/arm/boot/dts/qcom/msm8937-pinctrl-D1C.dtsi
+ *   arch/arm/boot/dts/qcom/components/memmap/memmap_8937_v0.dtsi
+ *   arch/arm/boot/dts/qcom/components/memmap/msm8937-memory-pstore.dtsi
+ *   fs/pstore/ram.c
+ *
+ * The Linux 4.19 Qualcomm substrate supplies CPUs, interrupt controllers,
+ * timers, clocks, the PM8937 regulator graph, and the SDHCI controllers.  This
+ * file translates only the exact D1C board-level overrides needed for early
+ * console, persistent logs, eMMC, and SD-card access.  Display, USB, charging,
+ * audio, camera, radio, sensors, fingerprint, NFC, and LEDs remain deferred.
+ */
+
+#include "../vendor-legacy/qcom/pmi8950.dtsi"
+
+/*
+ * The 4.19 generic PMI8950 description assumes a QUSB PHY supplied by a
+ * separate board file.  D1C USB, charging, fuel-gauge, display-power, LED,
+ * and haptics data are intentionally deferred, so keep those consumers off
+ * and remove the unresolved cross-subsystem supply until their own stages.
+ */
+&qpnp_smbcharger {
+	/delete-property/ dpdm-supply;
+	status = "disabled";
+};
+
+&qpnp_fg {
+	status = "disabled";
+};
+
+&wled {
+	status = "disabled";
+};
+
+&flash_led {
+	status = "disabled";
+};
+
+&pmi_haptic {
+	status = "disabled";
+};
+
+&reserved_memory {
+	/* Exact FIH 0xc3200000..0xc3afffff shared-memory reservation. */
+	fih_mem: fih_region@c3200000 {
+		compatible = "removed-dma-pool";
+		reg = <0x0 0xc3200000 0x0 0x00900000>;
+		no-map;
+	};
+
+	/*
+	 * The stock 3.18 driver hard-coded this exact 1-MiB area and geometry.
+	 * Linux 4.19 consumes the same reservation through the ramoops binding.
+	 */
+	ramoops: ramoops@c3b00000 {
+		compatible = "ramoops";
+		reg = <0x0 0xc3b00000 0x0 0x00100000>;
+		record-size = <0x00001000>;
+		console-size = <0x00040000>;
+		ftrace-size = <0x00001000>;
+		pmsg-size = <0x00001000>;
+		no-map;
+	};
+};
+
+/* Match the Android 9 FIH partition contract; PLE has no vendor partition. */
+&firmware {
+	android {
+		fstab {
+			vendor {
+				status = "disabled";
+			};
+
+			system {
+				fsmgr_flags = "wait,verify";
+				status = "okay";
+			};
+		};
+	};
+};
+
+/* HMD D1C disables the GPIO67 card-detect pull-up while the slot is active. */
+&tlmm {
+	ple_sdhc2_cd_pin {
+		ple_sdc2_cd_on: cd_on {
+			mux {
+				pins = "gpio67";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio67";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+	};
+};
+
+&blsp1_uart2 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart_console_active>;
+};
+
+&sdhc_1 {
+	vdd-supply = <&pm8937_l8>;
+	qcom,vdd-voltage-level = <2900000 2900000>;
+	qcom,vdd-current-level = <200 570000>;
+
+	vdd-io-supply = <&pm8937_l5>;
+	qcom,vdd-io-always-on;
+	qcom,vdd-io-lpm-sup;
+	qcom,vdd-io-voltage-level = <1800000 1800000>;
+	qcom,vdd-io-current-level = <200 325000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc1_clk_on &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
+	pinctrl-1 = <&sdc1_clk_off &sdc1_cmd_off &sdc1_data_off &sdc1_rclk_off>;
+
+	qcom,clk-rates = <400000 20000000 25000000 50000000 100000000
+			  192000000 384000000>;
+	qcom,nonremovable;
+	qcom,bus-speed-mode = "HS400_1p8v", "HS200_1p8v", "DDR_1p8v";
+	status = "okay";
+};
+
+&sdhc_2 {
+	vdd-supply = <&pm8937_l11>;
+	qcom,vdd-voltage-level = <2950000 2950000>;
+	qcom,vdd-current-level = <15000 800000>;
+
+	vdd-io-supply = <&pm8937_l12>;
+	qcom,vdd-io-voltage-level = <1800000 2950000>;
+	qcom,vdd-io-current-level = <200 22000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on
+		     &ple_sdc2_cd_on>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off>;
+
+	cd-gpios = <&tlmm 67 0x1>;
+	qcom,clk-rates = <400000 20000000 25000000 50000000 100000000
+			  200000000>;
+	qcom,bus-speed-mode = "SDR12", "SDR25", "SDR50", "DDR50", "SDR104";
+	status = "okay";
+};
