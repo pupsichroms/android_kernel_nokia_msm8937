@@ -58,6 +58,9 @@ enum {
 };
 
 struct msm_asoc_mach_data {
+	/* Exact PLE earpiece analog switch; absent on other boards. */
+	struct gpio_desc *ple_ear_en;
+	struct gpio_desc *ple_ear_in;
 	int codec_type;
 	int ext_pa;
 	int us_euro_gpio;

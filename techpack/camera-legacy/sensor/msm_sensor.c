@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 #include "msm_sensor.h"
+#include "fih_msm_sensor_recover_ple.h"
 #include "msm_sd.h"
 #include "camera.h"
 #include "msm_cci.h"
@@ -17,6 +18,7 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
+#include <linux/of.h>
 #if IS_ENABLED(CONFIG_MACH_XIAOMI_MSM8937)
 #include <xiaomi-msm8937/mach.h>
 #endif
@@ -335,6 +337,71 @@ static void msm_sensor_stop_stream(struct msm_sensor_ctrl_t *s_ctrl)
 	return;
 }
 
+/*
+ * HMD's PLE kernel recovers a missing SOF by power-cycling the active
+ * Samsung module and replaying a board-qualified mode/stream-on sequence.
+ * The userspace camera stack sends MSM_SD_NOTIFY_FREEZE after its watchdog
+ * expires; without this Nokia hook both PLE modules remain silent forever.
+ */
+static void msm_sensor_ple_restart_stream(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	struct msm_camera_i2c_reg_setting conf_array = { 0 };
+	struct msm_camera_i2c_reg_array *sensor_setting = NULL;
+	const char *sensor_name;
+	uint16_t size = 0;
+	int rc;
+
+	if (!of_machine_is_compatible("nokia,ple"))
+		return;
+
+	mutex_lock(s_ctrl->msm_sensor_mutex);
+	if (s_ctrl->sensor_state != MSM_SENSOR_POWER_UP)
+		goto out;
+
+	sensor_name = s_ctrl->sensordata->sensor_name;
+	if (!strcmp(sensor_name, "s5k3p3_ple_truly")) {
+		sensor_setting = s5k3p3_ple_recover;
+		size = ARRAY_SIZE(s5k3p3_ple_recover);
+	} else if (!strcmp(sensor_name, "s5k4h8_kingcome")) {
+		sensor_setting = s5k4h8_ple_recover;
+		size = ARRAY_SIZE(s5k4h8_ple_recover);
+	} else {
+		goto out;
+	}
+
+	pr_info("%s: recovering frozen PLE sensor %s\n", __func__,
+		sensor_name);
+	rc = s_ctrl->func_tbl->sensor_power_down(s_ctrl);
+	if (rc < 0) {
+		pr_err("%s: %s power-down failed: %d\n", __func__,
+			sensor_name, rc);
+		goto out;
+	}
+
+	rc = s_ctrl->func_tbl->sensor_power_up(s_ctrl);
+	if (rc < 0) {
+		pr_err("%s: %s power-up failed: %d\n", __func__,
+			sensor_name, rc);
+		goto out;
+	}
+
+	conf_array.addr_type = s_ctrl->stop_setting.addr_type;
+	conf_array.data_type = s_ctrl->stop_setting.data_type;
+	conf_array.delay = s_ctrl->stop_setting.delay;
+	conf_array.size = size;
+	conf_array.reg_setting = sensor_setting;
+	rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write_table(
+		s_ctrl->sensor_i2c_client, &conf_array);
+	if (rc < 0)
+		pr_err("%s: %s recovery write failed: %d\n", __func__,
+			sensor_name, rc);
+	else
+		pr_info("%s: %s recovery stream started\n", __func__,
+			sensor_name);
+out:
+	mutex_unlock(s_ctrl->msm_sensor_mutex);
+}
+
 static int msm_sensor_get_af_status(struct msm_sensor_ctrl_t *s_ctrl,
 			void __user *argp)
 {
@@ -370,6 +437,7 @@ static long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 		msm_sensor_stop_stream(s_ctrl);
 		return 0;
 	case MSM_SD_NOTIFY_FREEZE:
+		msm_sensor_ple_restart_stream(s_ctrl);
 		return 0;
 	case MSM_SD_UNNOTIFY_FREEZE:
 		return 0;

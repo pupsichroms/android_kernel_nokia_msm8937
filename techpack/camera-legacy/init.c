@@ -1,5 +1,6 @@
 #include <linux/module.h>
 #include <linux/printk.h>
+#include <linux/of.h>
 #if IS_ENABLED(CONFIG_MACH_XIAOMI_MSM8937)
 #include <xiaomi-msm8937/mach.h>
 #endif
@@ -15,6 +16,12 @@ bool camera_legacy_enable = false;
 
 static int __init camera_legacy_init(void)
 {
+	/* PLE uses the exact HMD619F legacy camera ioctl layout. Keep this
+	 * board-specific; never masquerade as a Xiaomi to enable its stack.
+	 */
+	if (of_machine_is_compatible("nokia,ple"))
+		camera_legacy_enable = true;
+
 #if IS_ENABLED(CONFIG_MACH_XIAOMI_MSM8937)
 	if (xiaomi_msm8937_mach_get())
 		camera_legacy_enable = true;

@@ -5,6 +5,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/of_gpio.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
@@ -22,6 +23,7 @@
 #include "msm-pcm-routing-v2.h"
 #include <asoc/msm-cdc-pinctrl.h>
 #include "msm8952.h"
+#include "ple-ear-switch.h"
 #include "msm-pcm-voice-v2.h"
 #if IS_ENABLED(CONFIG_MACH_XIAOMI_MSM8937)
 #include <xiaomi-msm8937/mach.h>
@@ -36,6 +38,31 @@
 #define PMIC_INT_ANALOG_CODEC "analog-codec"
 #define EXT_SMART_PA "ext-smart-pa"
 
+/* Exact PLE619F Ear SW path. Keep the maintained codec's EAR_S/PA graph
+ * and attach Nokia's external switch after that output, not in a foreign
+ * Xiaomi codec variant. Only a PLE DT with both owned GPIOs enables it.
+ */
+static int msm_ple_ear_event(struct snd_soc_dapm_widget *w,
+		struct snd_kcontrol *kcontrol, int event)
+{
+	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(w->dapm->card);
+
+	return ple_ear_switch_set(pdata->ple_ear_en, pdata->ple_ear_in, event);
+}
+
+static const char * const ple_ear_text[] = { "Off", "On" };
+static SOC_ENUM_SINGLE_DECL(ple_ear_enum, SND_SOC_NOPM, 0, ple_ear_text);
+static const struct snd_kcontrol_new ple_ear_mux =
+	SOC_DAPM_ENUM("Ear SW Switch Mux", ple_ear_enum);
+static const struct snd_soc_dapm_widget ple_ear_widgets[] = {
+	SND_SOC_DAPM_HP("Ear SW", msm_ple_ear_event),
+	SND_SOC_DAPM_MUX("Ear SW Switch", SND_SOC_NOPM, 0, 0, &ple_ear_mux),
+};
+static const struct snd_soc_dapm_route ple_ear_routes[] = {
+	{ "Ear SW", NULL, "Ear SW Switch" },
+	{ "Ear SW Switch", "On", "EAR" },
+};
+
 enum btsco_rates {
 	RATE_8KHZ_ID,
 	RATE_16KHZ_ID,
@@ -46,6 +73,8 @@ static int msm_btsco_rate = BTSCO_RATE_8KHZ;
 static int msm_btsco_ch = 1;
 static int msm_ter_mi2s_tx_ch = 1;
 static int msm_pri_mi2s_rx_ch = 1;
+/* Exact PLE619F: primary codec and external stereo amps are independent. */
+static int msm_ple_quat_rx_ch = 1;
 static int msm_proxy_rx_ch = 2;
 static int msm_vi_feed_tx_ch = 2;
 static int mi2s_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
@@ -678,6 +707,19 @@ static int msm_mi2s_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
+static int msm_ple_quat_rx_fixup(struct snd_soc_pcm_runtime *rtd,
+				struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+					SNDRV_PCM_HW_PARAM_RATE);
+	struct snd_interval *channels = hw_param_interval(params,
+					SNDRV_PCM_HW_PARAM_CHANNELS);
+
+	rate->min = rate->max = 48000;
+	channels->min = channels->max = msm_ple_quat_rx_ch;
+	return 0;
+}
+
 static int msm_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
 {
@@ -1156,6 +1198,26 @@ static int msm_pri_mi2s_rx_ch_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+static int msm_ple_quat_rx_ch_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = msm_ple_quat_rx_ch - 1;
+	return 0;
+}
+
+static int msm_ple_quat_rx_ch_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	long value = ucontrol->value.integer.value[0];
+
+	if (value < 0 || value > 1)
+		return -EINVAL;
+	if (msm_ple_quat_rx_ch == value + 1)
+		return 0;
+	msm_ple_quat_rx_ch = value + 1;
+	return 1;
+}
+
 static int mi2s_rx_sample_rate_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
@@ -1272,6 +1334,11 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			msm_vi_feed_tx_ch_get, msm_vi_feed_tx_ch_put),
 	SOC_ENUM_EXT("MI2S_RX SampleRate", msm_snd_enum[6],
 			mi2s_rx_sample_rate_get, mi2s_rx_sample_rate_put),
+};
+
+static const struct snd_kcontrol_new ple_snd_controls[] = {
+	SOC_ENUM_EXT("QUAT_MI2S_RX Channels", msm_snd_enum[1],
+			msm_ple_quat_rx_ch_get, msm_ple_quat_rx_ch_put),
 };
 
 static int msm8952_enable_wsa_mclk(struct snd_soc_card *card, bool enable)
@@ -1847,6 +1914,20 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		return -EINVAL;
 	}
 	dapm = snd_soc_component_get_dapm(ana_cdc);
+	if (pdata->ple_ear_en && pdata->ple_ear_in) {
+		ret = snd_soc_add_component_controls(ana_cdc, ple_snd_controls,
+				ARRAY_SIZE(ple_snd_controls));
+		if (ret)
+			return ret;
+		ret = snd_soc_dapm_new_controls(dapm, ple_ear_widgets,
+				ARRAY_SIZE(ple_ear_widgets));
+		if (ret)
+			return ret;
+		ret = snd_soc_dapm_add_routes(dapm, ple_ear_routes,
+				ARRAY_SIZE(ple_ear_routes));
+		if (ret)
+			return ret;
+	}
 	ret = snd_soc_add_component_controls(ana_cdc, msm_snd_controls,
 					ARRAY_SIZE(msm_snd_controls));
 	if (ret < 0) {
@@ -3295,6 +3376,9 @@ codec_dai:
 				dai_link[i].codec_of_node = phandle;
 			}
 		}
+		if (dai_link[i].id == MSM_BACKEND_DAI_QUATERNARY_MI2S_RX &&
+			of_property_read_bool(cdev->of_node, "fih,ple-audio"))
+			dai_link[i].be_hw_params_fixup = msm_ple_quat_rx_fixup;
 		if ((dai_link[i].id == MSM_BACKEND_DAI_QUATERNARY_MI2S_RX) &&
 			(of_property_read_bool(
 			cdev->of_node, "ext_pa_tfa98xx"))) {
@@ -3493,6 +3577,17 @@ static int msm8952_asoc_machine_probe(struct platform_device *pdev)
 				GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
+
+	if (of_property_read_bool(pdev->dev.of_node, "fih,ple-audio")) {
+		pdata->ple_ear_en = devm_gpiod_get(&pdev->dev,
+				"ear-switch-en", GPIOD_OUT_LOW);
+		if (IS_ERR(pdata->ple_ear_en))
+			return PTR_ERR(pdata->ple_ear_en);
+		pdata->ple_ear_in = devm_gpiod_get(&pdev->dev,
+				"ear-switch-in", GPIOD_OUT_LOW);
+		if (IS_ERR(pdata->ple_ear_in))
+			return PTR_ERR(pdata->ple_ear_in);
+	}
 
 	match = of_match_node(msm8952_asoc_machine_of_match,
 			      pdev->dev.of_node);
