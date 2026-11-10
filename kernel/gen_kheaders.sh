@@ -67,6 +67,13 @@ for f in $dir_list;
 	do find "$f" -name "*.h";
 done | cpio --quiet -pd $cpio_dir >/dev/null 2>&1
 
+# merge_config.sh can run olddefconfig on an intermediate base before applying
+# the final fragments. Kbuild does not remove every generated include/config
+# header disabled by a later fragment, so exclude those stale headers from the
+# embedded archive using the final .config as the authority.
+"$srctree/scripts/prune_stale_kconfig_headers.sh" \
+	"$outdir/.config" "$cpio_dir/include/config"
+
 # Remove comments except SDPX lines
 find $cpio_dir -type f -print0 |
 	xargs -0 -P8 -n1 perl -pi -e 'BEGIN {undef $/;}; s/\/\*((?!SPDX).)*?\*\///smg;'
