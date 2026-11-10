@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+
+#include "../vendor-legacy/qcom/msm8937.dtsi"
+#include "ple-core.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. MSM8937-PMI8950 - FIH PLE EVT1";
+	compatible = "nokia,ple", "qcom,msm8937-mtp", "qcom,msm8937", "qcom,mtp";
+	qcom,board-id = <0x9b 0>;
+	qcom,pmic-id = <0x10019 0x010011 0x0 0x0>;
+};

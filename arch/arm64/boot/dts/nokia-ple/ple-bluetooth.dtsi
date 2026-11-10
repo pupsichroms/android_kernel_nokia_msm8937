@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* PLE619F HMD d548dae4: Pronto APPS_RIVA_BT_CMD/ACL (legacy smdtty3/2).
+ * Translate to the existing4.19 MSM_SMD_PKT/RPMSG implementation and its
+ * standard fragmented-read binding. No UART, modem, ANT, FM or NV endpoint.
+ */
+&soc {
+	/* The driver iterates ALL children, including unavailable ones. Replace
+	 * the generic packet graph instead of enabling its unrelated endpoints.
+	 */
+	/delete-node/ qcom,smdpkt;
+	qcom,smdpkt {
+		compatible = "qcom,smdpkt";
+		status = "okay";
+		bt-cmd {
+			qcom,smdpkt-edge = "wcnss";
+			qcom,smdpkt-ch-name = "APPS_RIVA_BT_CMD";
+			qcom,smdpkt-dev-name = "smd3";
+			qcom,smdpkt-fragmented-read;
+			qcom,smdpkt-drop-unopened;
+		};
+		bt-acl {
+			qcom,smdpkt-edge = "wcnss";
+			qcom,smdpkt-ch-name = "APPS_RIVA_BT_ACL";
+			qcom,smdpkt-dev-name = "smd2";
+			qcom,smdpkt-fragmented-read;
+			qcom,smdpkt-drop-unopened;
+		};
+	};
+};

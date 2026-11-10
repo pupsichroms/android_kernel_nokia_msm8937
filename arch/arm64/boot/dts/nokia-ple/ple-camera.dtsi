@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Camera hardware: exact HMD PLE619F d548dae4af7fa5a75be88ce2e93f95ad4c867777.
+ * Controller interfaces: pinned MSM8937 camera_v2 4.19 substrate.
+ * Keep the PLE sensor/OTP/VCM graph; do not import a Xiaomi camera board.
+ */
+#include "ple-camera-pinctrl.dtsi"
+#include "ple-camera-sensors.dtsi"
+
+/* The inherited Xiaomi 4.19 board constraint fixes L22 at 2.8 V. Exact HMD
+ * 619F source and all extracted stock PLE DTBs expose 2.8..2.95 V because the
+ * rear sensor/EEPROM power sequence requests 2.95 V on this rail.
+ */
+&pm8937_l22 {
+	regulator-min-microvolt = <2800000>;
+	regulator-max-microvolt = <2950000>;
+	qcom,init-voltage = <2800000>;
+};
+
+&{/soc/qcom,msm-cam@1b00000} { status = "okay"; };
+&{/soc/qcom,csiphy@1b34000} { status = "okay"; };
+&{/soc/qcom,csiphy@1b35000} { status = "okay"; };
+&{/soc/qcom,csid@1b30000} { status = "okay"; };
+&{/soc/qcom,csid@1b30400} { status = "okay"; };
+&{/soc/qcom,csid@1b30800} { status = "okay"; };
+&{/soc/qcom,ispif@1b31000} { status = "okay"; };
+&vfe0 { status = "okay"; };
+&vfe1 { status = "okay"; };
+&{/soc/qcom,cam_smmu} { status = "okay"; };
+&{/soc/qcom,jpeg@1b1c000} { status = "okay"; };
+&{/soc/qcom,cpp@1b04000} { status = "okay"; };
+&{/soc/qcom,vfe} { status = "okay"; };
+
+&cci {
+	status = "okay";
+	pinctrl-0 = <&ple_cci0_active &ple_cci1_active>;
+	pinctrl-1 = <&ple_cci0_suspend &ple_cci1_suspend>;
+};
+
+&gdsc_jpeg { status = "okay"; };
+&gdsc_vfe { status = "okay"; };
+&gdsc_vfe1 { status = "okay"; };
+&gdsc_cpp { status = "okay"; };
+
+/* Exact PLE EVT flash/torch currents. Initial brightness remains off;
+ * preserve the controller's thermal, droop and current-clamp protections.
+ */
+&flash_led { status = "okay"; };
+&led_flash0 { status = "okay"; };
+&pmi8950_flash0 { qcom,current = <650>; };
+&pmi8950_flash1 { qcom,current = <650>; };
+&pmi8950_torch0 { qcom,current = <150>; };
+&pmi8950_torch1 { qcom,current = <150>; };

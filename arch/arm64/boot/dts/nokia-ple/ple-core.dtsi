@@ -1,0 +1,449 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Nokia 6 PLE boot-critical platform data.
+ *
+ * Nokia hardware authority:
+ *   HMD commit d548dae4af7fa5a75be88ce2e93f95ad4c867777
+ *   arch/arm/boot/dts/qcom/msm8937-fih-PLE-v0.dtsi
+ *   arch/arm/boot/dts/qcom/msm8937-pinctrl-PLE.dtsi
+ *   arch/arm/boot/dts/qcom/msm8937-pmi8950-fih-PLE-EVT.dtsi
+ *   arch/arm/boot/dts/qcom/components/memmap/memmap_8937_v0.dtsi
+ *   arch/arm/boot/dts/qcom/components/memmap/msm8937-memory-pstore.dtsi
+ *   fs/pstore/ram.c
+ *
+ * The Linux 4.19 Qualcomm substrate supplies CPUs, interrupt controllers,
+ * timers, clocks, the PM8937 regulator graph, and the SDHCI controllers.  This
+ * file translates only the exact PLE board-level overrides needed for early
+ * console, persistent logs, eMMC, SD-card access, K03 USB recovery, and the
+ * K04 recovery display/input path, and the K05 battery/power policy. Audio,
+ * camera, radio, sensors, fingerprint, NFC, and non-backlight LEDs remain
+ * deferred.
+ */
+
+#include "../vendor-legacy/qcom/pmi8950.dtsi"
+#include "ple-batterydata.dtsi"
+#include "ple-panel-fih-ili7807e-1080p-video.dtsi"
+#include "ple-display-input.dtsi"
+#include "ple-goodix.dtsi"
+
+/*
+ * Bring-up only: Nokia firmware refuses the driver's SCM watchdog-disable
+ * request, while recovery sideload consistently resets during verification.
+ * Keep the node disabled until the 4.19 pet path is stable on PLE.
+ */
+&soc {
+	qcom,wdt@b017000 {
+		qcom,bark-time = <15000>;
+		status = "disabled";
+	};
+};
+
+/*
+ * The 4.19 generic PMI8950 description assumes a QUSB PHY. PLE retains the
+ * legacy HSUSB OTG block, which is also the exact MSM8937/PMI8950 DP/DM
+ * provider used by the registered 4.19 reference. K05 restores the exact HMD
+ * PLE battery profiles, charger limits, HVDCP prohibition, and the high/low
+ * compensation policy before enabling charging.
+ */
+&qpnp_smbcharger {
+	dpdm-supply = <&usb_otg>;
+	qcom,battery-data = <&ple_batterydata>;
+	qcom,float-voltage-mv = <4400>;
+	qcom,fastchg-current-comp = <1200>;
+	qcom,float-voltage-comp = <16>;
+	qcom,thermal-mitigation = <3000 1200 600 0>;
+	qcom,iterm-ma = <100>;
+	qcom,charging-timeout-mins = <1536>;
+	qcom,precharging-timeout-mins = <192>;
+	qcom,override-usb-current;
+	qcom,bmd-pin-src = "bpd_thm";
+	fih,disable_hvdcp_charge;
+	fih,high-low-comp-set = <1>;
+	status = "okay";
+};
+
+&qpnp_fg {
+	qcom,battery-data = <&ple_batterydata>;
+	qcom,bad-battery-detection-enable;
+	qcom,fg-cutoff-voltage-mv = <3300>;
+	qcom,resume-soc = <95>;
+	qcom,fg-iterm-ma = <100>;
+	qcom,fg-chg-iterm-ma = <100>;
+	qcom,hold-soc-while-full;
+	qcom,cold-hot-jeita-hysteresis = <6 6>;
+	qcom,ext-sense-type;
+	qcom,vbat-estimate-diff-mv = <100>;
+	status = "okay";
+};
+
+&flash_led {
+	status = "disabled";
+};
+
+&pmi_haptic {
+	/* Exact HMD PLE-v0 "erm"; 4.19 numeric binding: ERM1, not LRA0. */
+	qcom,actuator-type = <1>;
+	qcom,vmax-mv = <3000>;
+	status = "okay";
+};
+
+&reserved_memory {
+	/*
+	 * Stock Android 9 keeps the secure-app window outside Linux memory.
+	 * Without this reservation, allocations into the TZ-owned range reset
+	 * the SoC under memory pressure before the kernel can report a panic.
+	 */
+	tzapp_mem: tzapp_region@c3c00000 {
+		compatible = "shared-dma-pool";
+		reg = <0x0 0xc3c00000 0x0 0x01e00000>;
+		no-map;
+	};
+
+	/* Exact FIH 0xc3200000..0xc3afffff shared-memory reservation. */
+	fih_mem: fih_region@c3200000 {
+		compatible = "removed-dma-pool";
+		reg = <0x0 0xc3200000 0x0 0x00900000>;
+		no-map;
+	};
+
+	/*
+	 * The stock 3.18 driver hard-coded this exact 1-MiB area and geometry.
+	 * Linux 4.19 consumes the same reservation through the ramoops binding.
+	 */
+	ramoops: ramoops@c3b00000 {
+		compatible = "ramoops";
+		reg = <0x0 0xc3b00000 0x0 0x00100000>;
+		record-size = <0x00020000>;
+		console-size = <0x00020000>;
+		ftrace-size = <0x00001000>;
+		/* Retain enough userspace logcat to diagnose pre-ADB boot failures. */
+		pmsg-size = <0x00080000>;
+		no-map;
+	};
+};
+
+/*
+ * The stock DT fstab describes the pre-retrofit physical system layout and
+ * its system node is incomplete for current fs_mgr.  Disable the DT source so
+ * first-stage init uses the ramdisk fstab.qcom and its logical partitions.
+ */
+&firmware {
+	android {
+		fstab {
+			status = "disabled";
+
+			vendor {
+				status = "disabled";
+			};
+
+			system {
+				fsmgr_flags = "wait,verify";
+				status = "okay";
+			};
+		};
+	};
+};
+
+/* HMD PLE disables the GPIO67 card-detect pull-up while the slot is active. */
+&tlmm {
+	ple_sdhc2_cd_pin {
+		ple_sdc2_cd_on: cd_on {
+			mux {
+				pins = "gpio67";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio67";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+	};
+};
+
+&usb_otg {
+	extcon = <&qpnp_smbcharger>;
+	qcom,floated-charger-enable;
+	status = "okay";
+};
+
+/*
+ * K06 Recovery boundary: SMEM and the RPM transport stay available because
+ * the regulator graph depends on them.  Modem and ADSP firmware boot are not
+ * needed by Recovery and remain quiesced until their exact Android 9 firmware
+ * and userspace contracts are validated together in Phase 9.
+ */
+&pil_mss {
+	status = "disabled";
+};
+
+&{/soc/qcom,lpass@c200000} {
+	status = "disabled";
+};
+
+&bam_dmux {
+	status = "disabled";
+};
+
+&{/soc/qcom,smdpkt} {
+	status = "disabled";
+};
+
+&{/soc/smd/modem} {
+	status = "disabled";
+};
+
+&{/soc/smd/adsp} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smsm/modem@1} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smsm/adsp@2} {
+	status = "disabled";
+};
+
+&{/soc/smp2p-modem} {
+	status = "disabled";
+};
+
+&{/soc/smp2p-adsp} {
+	status = "disabled";
+};
+
+&{/soc/qcom,smp2p_sleepstate} {
+	status = "disabled";
+};
+
+&adsp_loader {
+	status = "disabled";
+};
+
+&{/soc/qcom,msm_fastrpc} {
+	status = "disabled";
+};
+
+&{/soc/qcom,adsprpc-mem} {
+	status = "disabled";
+};
+
+&{/soc/qcom,rmtfs_sharedmem@00000000} {
+	status = "disabled";
+};
+
+&{/soc/modem_etm0} {
+	status = "disabled";
+};
+
+&{/soc/audio_etm0} {
+	status = "disabled";
+};
+
+/* Wi-Fi: HMD msm8937.dtsi has these same Pronto resources, PM8937 rails
+ * and GPIO76..80 five-wire pin states. The 4.19 substrate translates only
+ * clock/SMEM bindings. Enable WCNSS alone; modem/ADSP and trace stay off.
+ * Firmware is the installed exact619F read-only modem filesystem; factory
+ * WLAN NV/calibration is consumed read-only, never replaced with Xiaomi NV.
+ */
+&{/soc/qcom,pronto@a21b000} {
+	status = "okay";
+};
+
+&{/soc/qcom,wcnss-wlan@0a000000} {
+	status = "okay";
+};
+
+&{/soc/smd/wcnss} {
+	status = "okay";
+};
+
+&{/soc/qcom,smsm/wcnss@3} {
+	status = "okay";
+};
+
+&{/soc/smp2p-wcnss} {
+	status = "okay";
+};
+
+&{/soc/wcn_etm0} {
+	status = "disabled";
+};
+
+/* Historical minimal-Recovery quiesce defaults. The exact PLE audio overlay
+ * at the end of this file now enables only the audited Phase9 audio path.
+ */
+&audio_apr { status = "disabled"; };
+&int_codec { status = "disabled"; };
+&ext_codec { status = "disabled"; };
+&i2c_2 { status = "disabled"; };
+&pmic_analog_codec { status = "disabled"; };
+
+&{/soc/slim@c140000/tasha_codec} { status = "disabled"; };
+&{/soc/slim@c140000/msm_dai_slim} { status = "disabled"; };
+&{/soc/qcom,msm-pcm} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-routing} { status = "disabled"; };
+&{/soc/qcom,msm-compr-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-ultra-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-dsp-noirq} { status = "disabled"; };
+&{/soc/qcom,msm-transcode-loopback} { status = "disabled"; };
+&{/soc/qcom,msm-compress-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-voip-dsp} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-voice} { status = "disabled"; };
+&{/soc/qcom,msm-stub-codec} { status = "disabled"; };
+&{/soc/qcom,msm-dai-fe} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-afe} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-hdmi} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-dp} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-dp1} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-loopback} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-loopback-low-latency} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-dtmf} { status = "disabled"; };
+&{/soc/qcom,msm-dai-mi2s} { status = "disabled"; };
+&{/soc/qcom,msm-dai-cdc-dma} { status = "disabled"; };
+&{/soc/qcom,msm-lsm-client} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6} { status = "disabled"; };
+&{/soc/qcom,msm-pcm-hostless} { status = "disabled"; };
+&{/soc/qcom,msm-pri-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-sec-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-tert-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-quat-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-quin-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-sen-auxpcm} { status = "disabled"; };
+&{/soc/qcom,msm-hdmi-dba-codec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-pri-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-pri-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sec-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-tert-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-tert-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quat-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quat-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quin-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-quin-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sen-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-tdm-sen-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-pri-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-pri-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-sec-rx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-spdif-sec-tx} { status = "disabled"; };
+&{/soc/qcom,msm-dai-q6-afe-loopback-tx} { status = "disabled"; };
+&{/soc/qcom,avtimer@c0a300c} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_us_euro_sw} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_pri} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl_quin} { status = "disabled"; };
+&{/soc/wsa881x_analog_vi_pctrl} { status = "disabled"; };
+&{/soc/wsa881x_analog_clk_pctrl} { status = "disabled"; };
+&{/soc/wsa881x_analog_reset_pctrl} { status = "disabled"; };
+&{/soc/wsa_ana_clk} { status = "disabled"; };
+&{/soc/qcom,msm-cpe-lsm} { status = "disabled"; };
+&{/soc/wcd9xxx-irq} { status = "disabled"; };
+&{/soc/audio_ext_clk} { status = "disabled"; };
+&{/soc/msm_cdc_pinctrl} { status = "disabled"; };
+
+/* Exact stock SSC interface: QTimer timestamps for the real sensor daemon.
+ * Enabling this node creates /dev/sensors; it does not boot/restart SLPI.
+ * Do not write boot_slpi/{boot,ssr}: this board's sensors share the audio DSP.
+ */
+&ssc_sensors {
+	status = "okay";
+};
+
+/* K10: quiesce every inherited camera controller until Phase 9. */
+&{/soc/qcom,msm-cam@1b00000} { status = "disabled"; };
+&{/soc/qcom,csiphy@1b34000} { status = "disabled"; };
+&{/soc/qcom,csiphy@1b35000} { status = "disabled"; };
+&{/soc/qcom,csid@1b30000} { status = "disabled"; };
+&{/soc/qcom,csid@1b30400} { status = "disabled"; };
+&{/soc/qcom,csid@1b30800} { status = "disabled"; };
+&{/soc/qcom,ispif@1b31000} { status = "disabled"; };
+&vfe0 { status = "disabled"; };
+&vfe1 { status = "disabled"; };
+&{/soc/qcom,cam_smmu} { status = "disabled"; };
+&{/soc/qcom,jpeg@1b1c000} { status = "disabled"; };
+&{/soc/qcom,cpp@1b04000} { status = "disabled"; };
+&cci { status = "disabled"; };
+&{/soc/qcom,vfe} { status = "disabled"; };
+&{/soc/qcom,camera-flash} { status = "disabled"; };
+&gdsc_jpeg { status = "disabled"; };
+&gdsc_vfe { status = "disabled"; };
+&gdsc_vfe1 { status = "disabled"; };
+&gdsc_cpp { status = "disabled"; };
+
+/*
+ * The generic HMD MSM8937 tree described a Pericom controller on QUP2, but
+ * the exact PLE EVT overlay shared by all three approved variants explicitly
+ * disabled it. The 4.19 substrate has no Pericom child, so use the stock
+ * PMIC-controlled HSUSB role/VBUS path. PLE also disables the inherited WSA
+ * codecs on this bus; audio remains deferred to K08.
+ */
+&wsa881x_i2c_f {
+	status = "disabled";
+};
+
+&wsa881x_i2c_45 {
+	status = "disabled";
+};
+
+&blsp1_uart2 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart_console_active>;
+};
+
+&sdhc_1 {
+	/*
+	 * Stock PLE uses the legacy SDHCI path.  The HBG4a2 eMMC resets the
+	 * device under sustained writes when the 4.19 common node enables CQE.
+	 */
+	compatible = "qcom,sdhci-msm";
+
+	vdd-supply = <&pm8937_l8>;
+	qcom,vdd-voltage-level = <2900000 2900000>;
+	qcom,vdd-current-level = <200 570000>;
+
+	vdd-io-supply = <&pm8937_l5>;
+	qcom,vdd-io-always-on;
+	qcom,vdd-io-lpm-sup;
+	qcom,vdd-io-voltage-level = <1800000 1800000>;
+	qcom,vdd-io-current-level = <200 325000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc1_clk_on &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
+	pinctrl-1 = <&sdc1_clk_off &sdc1_cmd_off &sdc1_data_off &sdc1_rclk_off>;
+
+	qcom,clk-rates = <400000 20000000 25000000 50000000 100000000
+			  192000000 384000000>;
+	qcom,nonremovable;
+	qcom,bus-speed-mode = "HS400_1p8v", "HS200_1p8v", "DDR_1p8v";
+	status = "okay";
+};
+
+&sdhc_2 {
+	vdd-supply = <&pm8937_l11>;
+	qcom,vdd-voltage-level = <2950000 2950000>;
+	qcom,vdd-current-level = <15000 800000>;
+
+	vdd-io-supply = <&pm8937_l12>;
+	qcom,vdd-io-voltage-level = <1800000 2950000>;
+	qcom,vdd-io-current-level = <200 22000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc2_clk_on &sdc2_cmd_on &sdc2_data_on
+		     &ple_sdc2_cd_on>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off>;
+
+	cd-gpios = <&tlmm 67 0x1>;
+	qcom,clk-rates = <400000 20000000 25000000 50000000 100000000
+			  200000000>;
+	qcom,bus-speed-mode = "SDR12", "SDR25", "SDR50", "DDR50", "SDR104";
+	status = "okay";
+};
+
+#include "ple-audio.dtsi"
+#include "ple-camera.dtsi"
+#include "ple-bluetooth.dtsi"
+#include "ple-cellular.dtsi"

@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Exact PLE recovery display/input translation from HMD Android 9. */
+
+&soc {
+	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		qcom,panel-supply-entry@1 {
+			reg = <1>;
+			qcom,supply-name = "lab";
+			qcom,supply-min-voltage = <4600000>;
+			qcom,supply-max-voltage = <6000000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+		};
+
+		qcom,panel-supply-entry@2 {
+			reg = <2>;
+			qcom,supply-name = "ibb";
+			qcom,supply-min-voltage = <4600000>;
+			qcom,supply-max-voltage = <6000000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-post-on-sleep = <20>;
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		input-name = "gpio-keys";
+		pinctrl-names = "tlmm_gpio_key_active", "tlmm_gpio_key_suspend";
+		pinctrl-0 = <&gpio_key_active>;
+		pinctrl-1 = <&gpio_key_suspend>;
+
+		vol_dn {
+			label = "volume_dn";
+			gpios = <&tlmm 91 0x1>;
+			linux,input-type = <1>;
+			linux,code = <114>;
+			debounce-interval = <15>;
+		};
+	};
+};
+
+/* Override generic MSM8937 pins with the exact PLE display/release set. */
+&mdss_dsi_active {
+	mux {
+		pins = "gpio60", "gpio46", "gpio47", "gpio64";
+	};
+
+	config {
+		pins = "gpio60", "gpio46", "gpio47", "gpio64";
+	};
+};
+
+&mdss_dsi_suspend {
+	mux {
+		pins = "gpio60", "gpio46", "gpio47", "gpio64";
+	};
+
+	config {
+		pins = "gpio60", "gpio46", "gpio47", "gpio64";
+	};
+};
+
+&ts_release {
+	mux {
+		pins = "gpio65";
+	};
+
+	config {
+		pins = "gpio65";
+	};
+};
+
+&mdss_mdp {
+	qcom,mdss-pref-prim-intf = "dsi";
+};
+
+&mdss_dsi {
+	hw-config = "single_dsi";
+};
+
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&fih_dsi_ili7807e_1080p_video>;
+	pinctrl-names = "mdss_default", "mdss_sleep";
+	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
+	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
+	qcom,platform-te-gpio = <&tlmm 24 0>;
+	qcom,platform-reset-gpio = <&tlmm 60 0>;
+	fih,platform-tp-1p8-en-gpio = <&tlmm 46 0>;
+	fih,platform-tp-2p8-en-gpio = <&tlmm 47 0>;
+	fih,platform-tp-reset-gpio = <&tlmm 64 0>;
+	lab-supply = <&lab_regulator>;
+	ibb-supply = <&ibb_regulator>;
+	status = "okay";
+};
+
+&mdss_dsi1 {
+	status = "disabled";
+};
+
+&labibb {
+	status = "okay";
+	qcom,qpnp-labibb-mode = "lcd";
+};
+
+&ibb_regulator {
+	qcom,qpnp-ibb-discharge-resistor = <32>;
+};
+
+&wled {
+	qcom,cons-sync-write-delay-us = <1000>;
+	status = "okay";
+};
+
+&i2c_3 {
+	status = "okay";
+
+	ili2121x@41 {
+		compatible = "ilitech,ili2121x";
+		reg = <0x41>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <65 0x2008>;
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+		pinctrl-0 = <&ts_int_active>;
+		pinctrl-1 = <&ts_int_suspend>;
+		pinctrl-2 = <&ts_release>;
+		touch,irq-gpio = <&tlmm 65 0x2008>;
+		touch,irq-flags = <0x2008>;
+	};
+};
+
+&spmi_bus {
+	qcom,pm8937@0 {
+		qcom,power-on@800 {
+			qcom,s3-debounce = <128>;
+			qcom,s3-src = "kpdpwr-and-resin";
+
+			qcom,pon_1 {
+				qcom,pon-type = <0>;
+				qcom,pull-up = <1>;
+				linux,code = <116>;
+				qcom,support-reset = <0>;
+			};
+
+			qcom,pon_2 {
+				qcom,pon-type = <1>;
+				qcom,pull-up = <1>;
+				linux,code = <115>;
+				qcom,support-reset = <0>;
+			};
+
+			qcom,pon_3 {
+				qcom,pon-type = <3>;
+				qcom,support-reset = <1>;
+				qcom,s1-timer = <6720>;
+				qcom,s2-timer = <2000>;
+				qcom,s2-type = <4>;
+			};
+		};
+	};
+};

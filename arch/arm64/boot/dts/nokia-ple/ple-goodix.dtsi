@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Exact HMD d548dae4 PLE-v0: FP_Goodix_TEE_V0 + fixed-regulator-EVT-v1. */
+&soc {
+	ple_fp_avdd: regulator_fp_avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "fp_avdd_vreg";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		startup-delay-us = <100>;
+		enable-active-high;
+		gpio = <&tlmm 33 0>;
+	};
+	ple_goodix {
+		compatible = "nokia,ple-goodix";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ple_fp_irq &ple_fp_reset>;
+		vdd_io-supply = <&ple_fp_avdd>;
+		goodix,gpio_reset = <&tlmm 89 0>;
+		goodix,gpio_irq = <&tlmm 48 0>;
+		status = "okay";
+	};
+};
+&tlmm {
+	ple_fp_irq: ple_fp_irq {
+		mux { pins = "gpio48"; function = "gpio"; };
+		config { pins = "gpio48"; drive-strength = <2>; bias-disable; input-enable; };
+	};
+	ple_fp_reset: ple_fp_reset {
+		mux { pins = "gpio89"; function = "gpio"; };
+		config { pins = "gpio89"; drive-strength = <2>; bias-disable; output-high; };
+	};
+};

@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * PLE hardware authority: HMD Nokia6_V6.19F d548dae4af7fa5a75be88ce2e93f95ad4c867777,
+ * msm8937-audio-mtp-ple.dtsi, msm8937-fih-PLE-v0.dtsi and pinctrl-PLE.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Translate only bindings onto the maintained 4.19 split codec/pinctrl API.
+ */
+
+&{/soc/qcom,lpass@c200000} { status = "okay"; };
+&{/soc/smd/adsp} { status = "okay"; };
+&{/soc/qcom,smsm/adsp@2} { status = "okay"; };
+&{/soc/smp2p-adsp} { status = "okay"; };
+&adsp_loader { status = "okay"; };
+&audio_apr { status = "okay"; };
+
+&int_codec {
+	status = "okay";
+	qcom,model = "msm8952-snd-card-ple";
+	fih,ple-audio;
+	qcom,msm-hs-micbias-type = "external";
+	qcom,msm-mbhc-hphl-swh = <1>;
+	qcom,msm-mbhc-gnd-swh = <1>;
+	qcom,msm-ext-pa = "quaternary";
+	ear-switch-en-gpios = <&tlmm 62 0>;
+	ear-switch-in-gpios = <&tlmm 63 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&ple_ear_switch_default>;
+	qcom,quat-mi2s-gpios = <&ple_quat_pinctrl>;
+	/delete-property/ qcom,cdc-us-euro-gpios;
+	/delete-property/ qcom,cdc-us-eu-gpios;
+	/delete-property/ asoc-wsa-codec-names;
+	/delete-property/ asoc-wsa-codec-prefixes;
+	/delete-property/ msm-vdd-wsa-switch-supply;
+	/delete-property/ qcom,msm-vdd-wsa-switch-voltage;
+	/delete-property/ qcom,msm-vdd-wsa-switch-current;
+
+	/* Exact physical PLE microphone routes plus the split-codec internal
+	 * links required by the 4.19 implementation. No foreign WSA path.
+	 */
+	qcom,audio-routing =
+		"RX_BIAS", "MCLK",
+		"SPK_RX_BIAS", "MCLK",
+		"INT_LDO_H", "MCLK",
+		"RX_I2S_CLK", "MCLK",
+		"TX_I2S_CLK", "MCLK",
+		"MIC BIAS External", "Handset Mic",
+		"MIC BIAS External2", "Headset Mic",
+		"MIC BIAS External", "Secondary Mic",
+		"AMIC1", "MIC BIAS External",
+		"AMIC2", "MIC BIAS External2",
+		"AMIC3", "MIC BIAS External",
+		"ADC1_IN", "ADC1_OUT",
+		"ADC2_IN", "ADC2_OUT",
+		"ADC3_IN", "ADC3_OUT",
+		"PDM_IN_RX1", "PDM_OUT_RX1",
+		"PDM_IN_RX2", "PDM_OUT_RX2",
+		"PDM_IN_RX3", "PDM_OUT_RX3";
+};
+
+&pmic_analog_codec { status = "okay"; };
+&{/soc/msm_cdc_pinctrl_pri} { status = "okay"; };
+&{/soc/qcom,msm-pcm} { status = "okay"; };
+&{/soc/qcom,msm-pcm-routing} { status = "okay"; };
+&{/soc/qcom,msm-compr-dsp} { status = "okay"; };
+&{/soc/qcom,msm-pcm-low-latency} { status = "okay"; };
+&{/soc/qcom,msm-ultra-low-latency} { status = "okay"; };
+&{/soc/qcom,msm-pcm-dsp-noirq} { status = "okay"; };
+&{/soc/qcom,msm-compress-dsp} { status = "okay"; };
+&{/soc/qcom,msm-voip-dsp} { status = "okay"; };
+&{/soc/qcom,msm-pcm-voice} { status = "okay"; };
+&{/soc/qcom,msm-stub-codec} { status = "okay"; };
+&{/soc/qcom,msm-dai-fe} { status = "okay"; };
+&{/soc/qcom,msm-pcm-afe} { status = "okay"; };
+&{/soc/qcom,msm-pcm-loopback} { status = "okay"; };
+&{/soc/qcom,msm-dai-mi2s} { status = "okay"; };
+&{/soc/qcom,msm-lsm-client} { status = "okay"; };
+&{/soc/qcom,msm-dai-q6} { status = "okay"; };
+&{/soc/qcom,msm-pcm-hostless} { status = "okay"; };
+&{/soc/qcom,msm-pri-auxpcm} { status = "okay"; };
+&{/soc/qcom,msm-sec-auxpcm} { status = "okay"; };
+&{/soc/qcom,msm-tert-auxpcm} { status = "okay"; };
+&{/soc/qcom,msm-quat-auxpcm} { status = "okay"; };
+&{/soc/qcom,msm-quin-auxpcm} { status = "okay"; };
+&{/soc/qcom,msm-sen-auxpcm} { status = "okay"; };
+&{/soc/qcom,avtimer@c0a300c} { status = "okay"; };
+
+&{/} {
+	aliases { i2c6 = &ple_amp_i2c; };
+};
+
+&soc {
+	ple_quat_pinctrl: ple-quaternary-mi2s-pinctrl {
+		compatible = "qcom,msm-cdc-pinctrl";
+		pinctrl-names = "aud_active", "aud_sleep";
+		pinctrl-0 = <&ple_quat_mi2s_active>;
+		pinctrl-1 = <&ple_quat_mi2s_sleep>;
+	};
+
+	/* Raw I2C is the exact619F FIH SmartAmp userspace ABI. Do not bind a
+	 * foreign TFA codec driver or port the stock factory test driver that
+	 * sends an unsolicited 0x55 byte on probe.
+	 */
+	ple_amp_i2c: i2c@7af6000 {
+		compatible = "qcom,i2c-msm-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		reg = <0x7af6000 0x600>;
+		interrupt-names = "qup_irq";
+		interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
+		qcom,clk-freq-out = <400000>;
+		qcom,clk-freq-in = <19200000>;
+		clock-names = "iface_clk", "core_clk";
+		clocks = <&gcc GCC_BLSP2_AHB_CLK>, <&gcc GCC_BLSP2_QUP2_I2C_APPS_CLK>;
+		pinctrl-names = "i2c_active", "i2c_sleep";
+		pinctrl-0 = <&ple_amp_i2c_active>;
+		pinctrl-1 = <&ple_amp_i2c_sleep>;
+		qcom,noise-rjct-scl = <0>;
+		qcom,noise-rjct-sda = <0>;
+		qcom,master-id = <84>;
+		dmas = <&dma_blsp2 6 64 0x20000020 0x20>,
+			<&dma_blsp2 7 32 0x20000020 0x20>;
+		dma-names = "tx", "rx";
+		status = "okay";
+	};
+};
+
+&tlmm {
+	ple_ear_switch_default: ple-ear-switch-default {
+		mux { pins = "gpio62", "gpio63"; function = "gpio"; };
+		config {
+			pins = "gpio62", "gpio63";
+			drive-strength = <8>;
+			bias-pull-down;
+			output-low;
+		};
+	};
+	ple_quat_mi2s_active: ple-quat-mi2s-active {
+		mux { pins = "gpio94", "gpio95", "gpio12", "gpio13"; function = "sec_mi2s"; };
+		config { pins = "gpio94", "gpio95", "gpio12", "gpio13"; drive-strength = <8>; };
+	};
+	ple_quat_mi2s_sleep: ple-quat-mi2s-sleep {
+		mux { pins = "gpio94", "gpio95", "gpio12", "gpio13"; function = "sec_mi2s"; };
+		config { pins = "gpio94", "gpio95", "gpio12", "gpio13"; drive-strength = <2>; bias-pull-down; };
+	};
+	ple_amp_i2c_active: ple-amp-i2c-active {
+		mux { pins = "gpio22", "gpio23"; function = "blsp_i2c6"; };
+		config { pins = "gpio22", "gpio23"; drive-strength = <2>; bias-disable; };
+	};
+	ple_amp_i2c_sleep: ple-amp-i2c-sleep {
+		mux { pins = "gpio22", "gpio23"; function = "gpio"; };
+		config { pins = "gpio22", "gpio23"; drive-strength = <2>; bias-pull-down; };
+	};
+};

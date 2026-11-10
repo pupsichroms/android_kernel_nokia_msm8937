@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* PLE619F HMD d548dae4 modem resources match the inherited MSM8937 graph.
+ * Keep the maintained4.19 SMEM-state/RPMSG bindings and signed installed
+ * "modem" firmware. Restore only the disabled cellular endpoints; do not
+ * replace accepted ADSP/Pronto resources or select foreign NV/firmware.
+ */
+&pil_mss { status = "okay"; };
+&bam_dmux { status = "okay"; };
+&{/soc/smd/modem} { status = "okay"; };
+&{/soc/qcom,smsm/modem@1} { status = "okay"; };
+&{/soc/smp2p-modem} { status = "okay"; };
+&{/soc/qcom,rmtfs_sharedmem@00000000} { status = "okay"; };
+
+/* ple-bluetooth.dtsi deliberately replaces the generic packet graph.
+ * Append the exact PLE DATA5_CNTL channel after that include, preserving
+ * both Bluetooth endpoints and their no-client queue bounds.
+ */
+&{/soc/qcom,smdpkt} {
+    modem-data5-cntl {
+        qcom,smdpkt-edge = "modem";
+        qcom,smdpkt-ch-name = "DATA5_CNTL";
+        qcom,smdpkt-dev-name = "smdcntl0";
+    };
+};
