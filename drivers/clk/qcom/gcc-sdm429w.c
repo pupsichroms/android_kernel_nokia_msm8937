@@ -1882,6 +1882,8 @@ static struct clk_rcg2 gfx3d_clk_src = {
 
 static const struct freq_tbl ftbl_mclk0_clk_src[] = {
 	F(24000000, P_GPLL6_OUT_MAIN, 1, 1, 45),
+	/* Exact HMD PLE619F MCLK step used by the stock Samsung sensor HAL. */
+	F(25000000, P_GPLL0_OUT_MAIN, 16, 1, 2),
 	F(66666667, P_GPLL0_OUT_MAIN, 12, 0, 0),
 	{ }
 };
