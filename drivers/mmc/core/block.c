@@ -721,21 +721,17 @@ cmd_done:
 	return ioc_err ? ioc_err : err;
 }
 
-static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
-				   struct mmc_ioc_multi_cmd __user *user,
-				   struct mmc_rpmb_data *rpmb)
+static int mmc_blk_ioctl_cmds(struct mmc_blk_data *md,
+			      struct mmc_ioc_cmd __user *cmds,
+			      __u64 num_of_cmds, struct mmc_rpmb_data *rpmb,
+			      bool legacy_rpmb)
 {
 	struct mmc_blk_ioc_data **idata = NULL;
-	struct mmc_ioc_cmd __user *cmds = user->cmds;
 	struct mmc_card *card;
 	struct mmc_queue *mq;
 	int i, err = 0, ioc_err = 0;
-	__u64 num_of_cmds;
+	unsigned int active_cmds;
 	struct request *req;
-
-	if (copy_from_user(&num_of_cmds, &user->num_of_cmds,
-			   sizeof(num_of_cmds)))
-		return -EFAULT;
 
 	if (!num_of_cmds)
 		return 0;
@@ -758,6 +754,23 @@ static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
 		idata[i]->rpmb = rpmb;
 	}
 
+	/*
+	 * Nokia 619F's stock listener uses a fixed three-command array and
+	 * terminates short RPMB transactions with opcode zero. Keep the old
+	 * copy/size checks, but never issue or copy back the unused commands.
+	 */
+	active_cmds = num_of_cmds;
+	if (legacy_rpmb) {
+		for (i = 0; i < num_of_cmds; i++) {
+			if (!idata[i]->ic.opcode) {
+				active_cmds = i;
+				break;
+			}
+		}
+	}
+	if (!active_cmds)
+		goto cmd_err;
+
 	card = md->queue.card;
 	if (IS_ERR(card)) {
 		err = PTR_ERR(card);
@@ -779,12 +792,12 @@ static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
 		rpmb ? MMC_DRV_OP_IOCTL_RPMB : MMC_DRV_OP_IOCTL;
 	req_to_mmc_queue_req(req)->drv_op_result = -EIO;
 	req_to_mmc_queue_req(req)->drv_op_data = idata;
-	req_to_mmc_queue_req(req)->ioc_count = num_of_cmds;
+	req_to_mmc_queue_req(req)->ioc_count = active_cmds;
 	blk_execute_rq(mq->queue, NULL, req, 0);
 	ioc_err = req_to_mmc_queue_req(req)->drv_op_result;
 
 	/* copy to user if data and response */
-	for (i = 0; i < num_of_cmds && !err; i++)
+	for (i = 0; i < active_cmds && !err; i++)
 		err = mmc_blk_ioctl_copy_to_user(&cmds[i], idata[i]);
 
 	blk_put_request(req);
@@ -796,6 +809,19 @@ cmd_err:
 	}
 	kfree(idata);
 	return ioc_err ? ioc_err : err;
+}
+
+static int mmc_blk_ioctl_multi_cmd(struct mmc_blk_data *md,
+				   struct mmc_ioc_multi_cmd __user *user,
+				   struct mmc_rpmb_data *rpmb)
+{
+	__u64 num_of_cmds;
+
+	if (copy_from_user(&num_of_cmds, &user->num_of_cmds,
+			   sizeof(num_of_cmds)))
+		return -EFAULT;
+
+	return mmc_blk_ioctl_cmds(md, user->cmds, num_of_cmds, rpmb, false);
 }
 
 static int mmc_blk_check_blkdev(struct block_device *bdev)
@@ -2564,6 +2590,14 @@ static long mmc_rpmb_ioctl(struct file *filp, unsigned int cmd,
 	int ret;
 
 	switch (cmd) {
+	case MMC_IOC_RPMB_CMD:
+		/* Preserve the exact stock ioctl's raw-I/O authorization gate. */
+		if (!capable(CAP_SYS_RAWIO))
+			return -EPERM;
+		ret = mmc_blk_ioctl_cmds(rpmb->md,
+				((struct mmc_ioc_rpmb __user *)arg)->cmds,
+				MMC_IOC_MAX_RPMB_CMD, rpmb, true);
+		break;
 	case MMC_IOC_CMD:
 		ret = mmc_blk_ioctl_cmd(rpmb->md,
 					(struct mmc_ioc_cmd __user *)arg,

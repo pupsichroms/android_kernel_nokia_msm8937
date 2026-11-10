@@ -48,6 +48,7 @@
  * @sig_change: flag to indicate serial signal change
  * @notify_state_update: notify channel state
  * @fragmented_read: set from dt node for partial read
+ * @drop_unopened: discard packets when an opted-in channel has no client
  * @dev_name:   /dev/@dev_name for smd_pkt device
  * @ch_name:    smd channel to match to
  * @edge:       smd edge to match to
@@ -72,6 +73,7 @@ struct smd_pkt_dev {
 	int sig_change;
 	bool notify_state_update;
 	bool fragmented_read;
+	bool drop_unopened;
 	const char *dev_name;
 	const char *ch_name;
 	const char *edge;
@@ -190,6 +192,13 @@ static int smd_pkt_rpdev_cb(struct rpmsg_device *rpdev, void *buf, int len,
 	skb_put_data(skb, buf, len);
 
 	spin_lock_irqsave(&smd_pkt_devp->queue_lock, flags);
+
+	if (smd_pkt_devp->drop_unopened &&
+	    refcount_read(&smd_pkt_devp->refcount) == 1) {
+		spin_unlock_irqrestore(&smd_pkt_devp->queue_lock, flags);
+		kfree_skb(skb);
+		return 0;
+	}
 
 	skb_queue_tail(&smd_pkt_devp->queue, skb);
 	spin_unlock_irqrestore(&smd_pkt_devp->queue_lock, flags);
@@ -594,7 +603,8 @@ static void smd_pkt_rpdev_remove(struct rpmsg_device *rpdev)
 int smd_pkt_open(struct inode *inode, struct file *file)
 {
 	struct smd_pkt_dev *smd_pkt_devp = cdev_to_smd_pkt_devp(inode->i_cdev);
-	int tout = msecs_to_jiffies(smd_pkt_devp->open_tout * 1000);
+	int tout = (file->f_flags & O_NONBLOCK) ? 0 :
+		msecs_to_jiffies(smd_pkt_devp->open_tout * 1000);
 	struct device *dev = &smd_pkt_devp->dev;
 	int ret;
 
@@ -613,7 +623,8 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 		put_device(dev);
 	SMD_PKT_INFO("timeout for %s by %s:%d\n", smd_pkt_devp->ch_name,
 				current->comm, task_pid_nr(current));
-		return -ETIMEDOUT;
+		return ret < 0 ? ret :
+			((file->f_flags & O_NONBLOCK) ? -EAGAIN : -ETIMEDOUT);
 	}
 	file->private_data = smd_pkt_devp;
 
@@ -732,6 +743,8 @@ static int smd_pkt_parse_devicetree(struct device_node *np,
 	key = "qcom,smdpkt-fragmented-read";
 
 	smd_pkt_devp->fragmented_read = of_property_read_bool(np, key);
+	smd_pkt_devp->drop_unopened =
+		of_property_read_bool(np, "qcom,smdpkt-drop-unopened");
 
 	SMD_PKT_INFO("Parsed %s:%s /dev/%s\n", smd_pkt_devp->edge,
 						smd_pkt_devp->ch_name,

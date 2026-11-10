@@ -11,6 +11,14 @@ Required properties:
 -qcom,smdpkt-port-name : the smd channel name
 -qcom,smdpkt-dev-name : the smdpkt device name
 
+The RPMSG-backed implementation uses qcom,smdpkt-edge and
+qcom,smdpkt-ch-name for the remote edge and channel respectively.
+Optional properties in this implementation:
+-qcom,smdpkt-fragmented-read : allow reading one packet in header/body pieces
+-qcom,smdpkt-drop-unopened : discard incoming packets while no userspace
+ client is open. Intended for transient Bluetooth HCI events/data after the
+ controller client closes; absent preserves existing queueing semantics.
+
 Example:
 
 	qcom,smdpkt {
