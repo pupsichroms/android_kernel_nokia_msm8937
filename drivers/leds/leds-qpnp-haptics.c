@@ -1832,6 +1832,42 @@ static void qpnp_haptics_brightness_set(struct led_classdev *cdev,
 {
 }
 
+/* Legacy PMI8950 DT supplies the carrier frequency used by the stock driver.
+ * Configure both the internal carrier and capture selector, without changing
+ * voltage/current limits. Keep upstream defaults when the property is absent.
+ */
+static int qpnp_haptics_internal_pwm_config(struct hap_chip *chip)
+{
+	u32 frequency;
+	u8 selector;
+	int rc;
+
+	rc = of_property_read_u32(chip->pdev->dev.of_node,
+			"qcom,int-pwm-freq-khz", &frequency);
+	if (rc == -EINVAL)
+		return 0;
+	if (rc < 0)
+		return rc;
+
+	if (frequency <= 253)
+		selector = chip->revid->pmic_subtype == PM660_SUBTYPE ?
+			INT_PWM_FREQ_505_KHZ : INT_PWM_FREQ_253_KHZ;
+	else if (frequency <= 505)
+		selector = INT_PWM_FREQ_505_KHZ;
+	else if (frequency <= 739)
+		selector = INT_PWM_FREQ_739_KHZ;
+	else
+		selector = INT_PWM_FREQ_1076_KHZ;
+
+	rc = qpnp_haptics_masked_write_reg(chip, HAP_INT_PWM_REG(chip),
+			INT_PWM_FREQ_SEL_MASK, selector);
+	if (rc < 0)
+		return rc;
+
+	return qpnp_haptics_masked_write_reg(chip, HAP_PWM_CAP_REG(chip),
+			INT_PWM_FREQ_SEL_MASK, selector);
+}
+
 static int qpnp_haptics_config(struct hap_chip *chip)
 {
 	u8 rc_clk_err_deci_pct;
@@ -1866,6 +1902,10 @@ static int qpnp_haptics_config(struct hap_chip *chip)
 
 	/* Configure the short circuit debounce register */
 	rc = qpnp_haptics_sc_deb_config(chip);
+	if (rc < 0)
+		return rc;
+
+	rc = qpnp_haptics_internal_pwm_config(chip);
 	if (rc < 0)
 		return rc;
 

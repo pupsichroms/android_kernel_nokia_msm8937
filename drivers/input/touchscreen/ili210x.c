@@ -7,6 +7,8 @@
 #include <linux/delay.h>
 #include <linux/of.h>
 #include <linux/workqueue.h>
+#include <linux/fb.h>
+#include <linux/mutex.h>
 #include <linux/input/ili210x.h>
 
 #define MAX_TOUCHES		2
@@ -53,6 +55,12 @@ struct ili210x {
 	bool is_ili2121x;
 	unsigned int poll_period;
 	struct delayed_work dwork;
+	struct notifier_block fb_notifier;
+	struct mutex pm_lock;
+	bool display_suspended;
+	bool system_suspended;
+	bool suspended;
+	bool fb_early_changed;
 };
 
 static int ili210x_read_reg(struct i2c_client *client, u8 reg, void *buf,
@@ -156,6 +164,62 @@ static bool get_pendown_state(const struct ili210x *priv)
 	return state;
 }
 
+/* pm_lock serializes FB and system sleep; the worker never takes it. */
+static void ili2121x_update_power_state(struct ili210x *priv)
+{
+	bool suspended = priv->display_suspended || priv->system_suspended;
+	const u8 release[ILI2121X_DATA_SIZE] = { 0 };
+
+	if (priv->suspended == suspended)
+		return;
+
+	WRITE_ONCE(priv->suspended, suspended);
+	if (suspended) {
+		/* HMD powers/resets touch with the panel: drain BEFORE blank. */
+		disable_irq(priv->client->irq);
+		cancel_delayed_work_sync(&priv->dwork);
+		ili2121x_report_events(priv->input, release);
+	} else {
+		/* Successful FB unblank has already completed panel power/reset. */
+		enable_irq(priv->client->irq);
+	}
+}
+
+static int ili2121x_fb_notifier(struct notifier_block *notifier,
+			       unsigned long event, void *data)
+{
+	struct ili210x *priv = container_of(notifier, struct ili210x, fb_notifier);
+	struct fb_event *fb_event = data;
+	int blank;
+
+	if (!fb_event || !fb_event->info || fb_event->info->node != 0 ||
+	    !fb_event->data)
+		return NOTIFY_DONE;
+
+	blank = *(int *)fb_event->data;
+	mutex_lock(&priv->pm_lock);
+	if (event == FB_EARLY_EVENT_BLANK && blank != FB_BLANK_UNBLANK) {
+		priv->fb_early_changed = !priv->display_suspended;
+		priv->display_suspended = true;
+	} else if (event == FB_R_EARLY_EVENT_BLANK &&
+		   blank != FB_BLANK_UNBLANK) {
+		/* Undo only OUR change if physical blank failed. */
+		if (priv->fb_early_changed)
+			priv->display_suspended = false;
+		priv->fb_early_changed = false;
+	} else if (event == FB_EVENT_BLANK) {
+		if (blank == FB_BLANK_UNBLANK)
+			priv->display_suspended = false;
+		priv->fb_early_changed = false;
+	} else {
+		mutex_unlock(&priv->pm_lock);
+		return NOTIFY_DONE;
+	}
+	ili2121x_update_power_state(priv);
+	mutex_unlock(&priv->pm_lock);
+	return NOTIFY_OK;
+}
+
 static void ili210x_work(struct work_struct *work)
 {
 	struct ili210x *priv = container_of(work, struct ili210x,
@@ -166,6 +230,9 @@ static void ili210x_work(struct work_struct *work)
 		u8 ili2121x[ILI2121X_DATA_SIZE];
 	} touchdata;
 	int error;
+
+	if (priv->is_ili2121x && READ_ONCE(priv->suspended))
+		return;
 
 	if (priv->is_ili2121x) {
 		error = ili210x_read_reg(client, REG_TOUCHDATA,
@@ -200,6 +267,9 @@ static void ili210x_work(struct work_struct *work)
 static irqreturn_t ili210x_irq(int irq, void *irq_data)
 {
 	struct ili210x *priv = irq_data;
+
+	if (priv->is_ili2121x && READ_ONCE(priv->suspended))
+		return IRQ_HANDLED;
 
 	schedule_delayed_work(&priv->dwork, 0);
 
@@ -311,6 +381,7 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 	priv->input = input;
 	priv->get_pendown_state = pdata ? pdata->get_pendown_state : NULL;
 	priv->is_ili2121x = is_ili2121x;
+	mutex_init(&priv->pm_lock);
 	priv->poll_period = pdata && pdata->poll_period ?
 		pdata->poll_period : DEFAULT_POLL_PERIOD;
 	INIT_DELAYED_WORK(&priv->dwork, ili210x_work);
@@ -363,7 +434,17 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 		goto err_remove_sysfs;
 	}
 
-	device_init_wakeup(dev, 1);
+	if (is_ili2121x) {
+		priv->fb_notifier.notifier_call = ili2121x_fb_notifier;
+		error = fb_register_client(&priv->fb_notifier);
+		if (error) {
+			dev_err(dev, "Unable to register display notifier: %d\n", error);
+			goto err_unregister_input;
+		}
+	}
+
+	/* PLE touch is powered off with the panel; no gesture wake is ported. */
+	device_init_wakeup(dev, !is_ili2121x);
 
 	if (is_ili2121x)
 		dev_info(dev, "ILI2121X initialized (IRQ: %d)\n", client->irq);
@@ -375,10 +456,18 @@ static int ili210x_i2c_probe(struct i2c_client *client,
 
 	return 0;
 
+err_unregister_input:
+	sysfs_remove_group(&dev->kobj, &ili210x_attr_group);
+	free_irq(client->irq, priv);
+	cancel_delayed_work_sync(&priv->dwork);
+	input_unregister_device(input);
+	kfree(priv);
+	return error;
 err_remove_sysfs:
 	sysfs_remove_group(&dev->kobj, &ili210x_attr_group);
 err_free_irq:
 	free_irq(client->irq, priv);
+	cancel_delayed_work_sync(&priv->dwork);
 err_free_mem:
 	input_free_device(input);
 	kfree(priv);
@@ -388,6 +477,9 @@ err_free_mem:
 static int ili210x_i2c_remove(struct i2c_client *client)
 {
 	struct ili210x *priv = i2c_get_clientdata(client);
+
+	if (priv->is_ili2121x)
+		fb_unregister_client(&priv->fb_notifier);
 
 	sysfs_remove_group(&client->dev.kobj, &ili210x_attr_group);
 	free_irq(priv->client->irq, priv);
@@ -401,6 +493,15 @@ static int ili210x_i2c_remove(struct i2c_client *client)
 static int __maybe_unused ili210x_i2c_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
+	struct ili210x *priv = i2c_get_clientdata(client);
+
+	if (priv->is_ili2121x) {
+		mutex_lock(&priv->pm_lock);
+		priv->system_suspended = true;
+		ili2121x_update_power_state(priv);
+		mutex_unlock(&priv->pm_lock);
+		return 0;
+	}
 
 	if (device_may_wakeup(&client->dev))
 		enable_irq_wake(client->irq);
@@ -411,6 +512,15 @@ static int __maybe_unused ili210x_i2c_suspend(struct device *dev)
 static int __maybe_unused ili210x_i2c_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
+	struct ili210x *priv = i2c_get_clientdata(client);
+
+	if (priv->is_ili2121x) {
+		mutex_lock(&priv->pm_lock);
+		priv->system_suspended = false;
+		ili2121x_update_power_state(priv);
+		mutex_unlock(&priv->pm_lock);
+		return 0;
+	}
 
 	if (device_may_wakeup(&client->dev))
 		disable_irq_wake(client->irq);

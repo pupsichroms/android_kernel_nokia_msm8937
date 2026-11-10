@@ -1,0 +1,7 @@
+config PLE_GOODIX
+	bool "Nokia PLE exact-stock Goodix TEE navigation interface"
+	depends on OF && GPIOLIB && REGULATOR && FB
+	help
+	  PLE619F platform GPIO/power/IRQ interface. The stock TEE decoder
+	  receives SIGIO and returns validated customer1 key events via G ioctls.
+	  This driver does not access biometric templates or implement SPI/TEE.
