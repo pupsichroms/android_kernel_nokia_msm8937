@@ -12,7 +12,9 @@
 #include "ion_system_secure_heap.h"
 
 #ifdef CONFIG_ION_LEGACY
+#include <linux/dma-buf.h>
 #include "ion_legacy.h"
+#include "ion_legacy_cache.h"
 #endif
 
 union ion_ioctl_arg {
@@ -55,11 +57,87 @@ static unsigned int ion_ioctl_dir(unsigned int cmd)
 	}
 }
 
+#ifdef CONFIG_ION_LEGACY
+static bool ion_legacy_cache_cmd(unsigned int cmd)
+{
+	return cmd == ION_LEGACY_CACHE_CUSTOM64 ||
+		cmd == ION_LEGACY_CACHE_CUSTOM32;
+}
+
+static long ion_legacy_cache_ioctl(unsigned int cmd, unsigned long arg)
+{
+	struct dma_buf *dmabuf;
+	u64 payload;
+	u32 cache_cmd, first_cmd, offset, length;
+	int fd, ret;
+
+	if (cmd == ION_LEGACY_CACHE_CUSTOM64) {
+		struct ion_legacy_custom64 custom;
+		struct ion_legacy_flush64 flush;
+
+		if (copy_from_user(&custom, (void __user *)arg, sizeof(custom)))
+			return -EFAULT;
+		cache_cmd = custom.cmd;
+		first_cmd = ION_LEGACY_CACHE_CLEAN64;
+		payload = custom.arg;
+		if (cache_cmd < first_cmd || cache_cmd > first_cmd + 2)
+			return -ENOTTY;
+		if (copy_from_user(&flush, u64_to_user_ptr(payload), sizeof(flush)))
+			return -EFAULT;
+		fd = flush.handle > 0 ? flush.handle : flush.fd;
+		offset = flush.offset;
+		length = flush.length;
+	} else if (cmd == ION_LEGACY_CACHE_CUSTOM32) {
+		struct ion_legacy_custom32 custom;
+		struct ion_legacy_flush32 flush;
+
+		if (copy_from_user(&custom, (void __user *)arg, sizeof(custom)))
+			return -EFAULT;
+		cache_cmd = custom.cmd;
+		first_cmd = ION_LEGACY_CACHE_CLEAN32;
+		payload = custom.arg;
+		if (cache_cmd < first_cmd || cache_cmd > first_cmd + 2)
+			return -ENOTTY;
+		if (copy_from_user(&flush, u64_to_user_ptr(payload), sizeof(flush)))
+			return -EFAULT;
+		fd = flush.handle > 0 ? flush.handle : flush.fd;
+		offset = flush.offset;
+		length = flush.length;
+	} else {
+		return -ENOTTY;
+	}
+
+	if (fd < 0)
+		return -EBADF;
+
+	/* CONFIG_ION_LEGACY already represents old handles as owned DMA-buf FDs. */
+	dmabuf = dma_buf_get(fd);
+	if (IS_ERR(dmabuf))
+		return PTR_ERR(dmabuf);
+	if (!length || (u64)offset + length > dmabuf->size) {
+		ret = -EINVAL;
+		goto put_buffer;
+	}
+
+	/* Old cache requests are not DMA-buf ownership transitions. */
+	ret = ion_legacy_cache_sync(dmabuf, offset, length, cache_cmd - first_cmd);
+
+put_buffer:
+	dma_buf_put(dmabuf);
+	return ret;
+}
+#endif
+
 long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
 	unsigned int dir;
 	union ion_ioctl_arg data;
+
+#ifdef CONFIG_ION_LEGACY
+	if (ion_legacy_cache_cmd(cmd))
+		return ion_legacy_cache_ioctl(cmd, arg);
+#endif
 
 	dir = ion_ioctl_dir(cmd);
 

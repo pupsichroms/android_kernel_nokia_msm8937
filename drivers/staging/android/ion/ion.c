@@ -38,6 +38,10 @@
 #include "ion.h"
 #include "ion_secure_util.h"
 #include "compat_ion.h"
+#if defined(CONFIG_ION_LEGACY) && (defined(CONFIG_ARM64) || defined(CONFIG_ARM))
+#include <asm/cacheflush.h>
+#include <linux/highmem.h>
+#endif
 
 static struct ion_device *internal_dev;
 static atomic_long_t total_heap_bytes;
@@ -1033,6 +1037,87 @@ static const struct dma_buf_ops dma_buf_ops = {
 	.vunmap = ion_dma_buf_vunmap,
 	.get_flags = ion_dma_buf_get_flags,
 };
+
+#ifdef CONFIG_ION_LEGACY
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM)
+static void ion_legacy_cache_range(void *start, unsigned int length,
+				   unsigned int operation)
+{
+	if (operation == 0)
+		dmac_clean_range(start, start + length);
+	else if (operation == 1)
+		dmac_inv_range(start, start + length);
+	else
+		dmac_flush_range(start, start + length);
+}
+
+static void ion_legacy_cache_pages(struct page *page, unsigned int offset,
+				   unsigned int length, unsigned int operation)
+{
+	/* As in exact HMD3.18, operate once per physical SG range, not once per
+	 * device attachment. Never use the address supplied by old userspace.
+	 */
+	if (!PageHighMem(page)) {
+		ion_legacy_cache_range(page_address(page) + offset, length, operation);
+		return;
+	}
+	while (length) {
+		unsigned int in_page = offset & (PAGE_SIZE - 1);
+		unsigned int count = min_t(unsigned int, length, PAGE_SIZE - in_page);
+		void *mapped = kmap_atomic(nth_page(page, offset >> PAGE_SHIFT));
+
+		ion_legacy_cache_range(mapped + in_page, count, operation);
+		kunmap_atomic(mapped);
+		offset += count;
+		length -= count;
+	}
+}
+#endif
+
+int ion_legacy_cache_sync(struct dma_buf *dmabuf, unsigned int offset,
+			 unsigned int length, unsigned int operation)
+{
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM)
+	struct ion_buffer *buffer;
+	struct scatterlist *sg;
+	u64 position = 0, end = (u64)offset + length;
+	unsigned int i;
+
+	/* Validate exporter before interpreting its private data. */
+	if (dmabuf->ops != &dma_buf_ops)
+		return -EINVAL;
+	buffer = dmabuf->priv;
+	if (!length || end > buffer->size || operation > 2)
+		return -EINVAL;
+	/* The legacy cache API has no protected-content contract, even when a
+	 * secure allocation is also shared with HLOS. Modern DMA sync is intact.
+	 */
+	if (is_secure_allocation(buffer->flags) || !hlos_accessible_buffer(buffer))
+		return -EPERM;
+	if (!ion_buffer_cached(buffer))
+		return 0;
+
+	mutex_lock(&buffer->lock);
+	for_each_sg(buffer->sg_table->sgl, sg,
+		    buffer->sg_table->orig_nents, i) {
+		u64 first = max_t(u64, offset, position);
+		u64 last = min_t(u64, end, position + sg->length);
+
+		if (last > first)
+			ion_legacy_cache_pages(sg_page(sg),
+					sg->offset + first - position,
+					last - first, operation);
+		position += sg->length;
+		if (position >= end)
+			break;
+	}
+	mutex_unlock(&buffer->lock);
+	return position >= end ? 0 : -EINVAL;
+#else
+	return -EOPNOTSUPP;
+#endif
+}
+#endif
 
 struct dma_buf *ion_alloc_dmabuf(size_t len, unsigned int heap_id_mask,
 				 unsigned int flags)

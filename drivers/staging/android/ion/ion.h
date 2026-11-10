@@ -265,6 +265,11 @@ struct ion_heap {
  */
 bool ion_buffer_cached(struct ion_buffer *buffer);
 
+#ifdef CONFIG_ION_LEGACY
+int ion_legacy_cache_sync(struct dma_buf *dmabuf, unsigned int offset,
+			 unsigned int length, unsigned int operation);
+#endif
+
 /**
  * ion_device_create - allocates and returns an ion device
  *

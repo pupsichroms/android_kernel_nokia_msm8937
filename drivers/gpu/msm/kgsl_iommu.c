@@ -254,6 +254,16 @@ static void kgsl_iommu_add_global(struct kgsl_mmu *mmu,
 	strlcpy(global_pt_entries[global_pt_count].name, name,
 			sizeof(global_pt_entries[global_pt_count].name));
 	global_pt_count++;
+
+	/* Temporary PLE bring-up telemetry: permission faults omit the nearby
+	 * entries in the fault handler. Identify the actual global allocation
+	 * before changing any GPU or SMMU access rights. Remove after closure.
+	 */
+	dev_info(KGSL_MMU_DEVICE(mmu)->dev,
+		"PLE GPU global: name=%s addr=0x%llx size=0x%llx footprint=0x%llx flags=0x%llx priv=0x%x\n",
+		name, (unsigned long long)memdesc->gpuaddr,
+		(unsigned long long)memdesc->size, (unsigned long long)size,
+		(unsigned long long)memdesc->flags, memdesc->priv);
 }
 
 struct kgsl_memdesc *kgsl_iommu_get_qdss_global_entry(void)

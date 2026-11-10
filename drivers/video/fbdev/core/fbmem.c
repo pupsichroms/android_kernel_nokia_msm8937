@@ -1094,7 +1094,7 @@ fb_blank(struct fb_info *info, int blank)
 		 * if fb_blank is failed then revert effects of
 		 * the early blank event.
 		 */
-		if (!early_ret)
+		if (!notifier_to_errno(early_ret))
 			fb_notifier_call_chain(FB_R_EARLY_EVENT_BLANK, &event);
 	}
 
